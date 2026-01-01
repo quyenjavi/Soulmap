@@ -1,15 +1,30 @@
 from flask import Flask, request, jsonify, send_from_directory, Response
 import os
-from dotenv import load_dotenv
 import json
 import urllib.request
 import urllib.error
 import time
 import socket
 
-load_dotenv()
-load_dotenv('.env.local')
 app = Flask(__name__, static_folder='.', static_url_path='')
+
+def load_env_local():
+    path = os.path.join(os.getcwd(), '.env.local')
+    if not os.path.isfile(path):
+        return
+    try:
+        with open(path, 'r') as f:
+            for line in f:
+                s = line.strip()
+                if not s or s.startswith('#'):
+                    continue
+                if '=' in s:
+                    k, v = s.split('=', 1)
+                    os.environ[k.strip()] = v.strip()
+    except Exception:
+        pass
+
+load_env_local()
 
 
 @app.after_request
@@ -26,10 +41,8 @@ def index():
 
 @app.route('/env.js')
 def env_js():
-    def esc(v):
-        return (v or '').replace('\\', '\\\\').replace("'", "\\'")
-    url = esc(os.environ.get('NEXT_PUBLIC_SUPABASE_URL', ''))
-    key = esc(os.environ.get('NEXT_PUBLIC_SUPABASE_ANON_KEY', ''))
+    url = os.environ.get('NEXT_PUBLIC_SUPABASE_URL', '')
+    key = os.environ.get('NEXT_PUBLIC_SUPABASE_ANON_KEY', '')
     body = f"window.SUPABASE_URL='{url}';window.SUPABASE_ANON_KEY='{key}';"
     return Response(body, status=200, content_type='application/javascript')
 

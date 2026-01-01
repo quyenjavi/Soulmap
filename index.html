@@ -11,22 +11,16 @@
 <body>
   <div class="app" aria-live="polite">
     <!-- Header -->
-    <header class="app-header" role="banner">
-      <div class="title-block">
-        <h1 id="title" class="heading">Soul Map</h1>
-        <p id="subtitle" class="subheading">Navigation of Life</p>
-      </div>
-      <div class="auth-controls">
-        <button id="btn-login" class="button">Login</button>
-        <button id="btn-register-header" class="button">Register</button>
-        <div id="user-menu" class="hidden">
-          <span id="user-email"></span>
-          <button id="btn-edit-profile" class="button">Edit Profile</button>
-          <button id="btn-logout" class="button">Logout</button>
-          <button id="btn-my-soulmaps" class="button">My SoulMaps</button>
-        </div>
-      </div>
-    </header>
+  <header class="app-header" role="banner">
+    <div class="title-block">
+      <h1 id="title" class="heading">Soul Map</h1>
+      <p id="subtitle" class="subheading">Navigation of Life</p>
+    </div>
+    <div id="auth-actions" class="auth-actions">
+      <span id="auth-user" class="auth-user"></span>
+      <button id="auth-btn" class="button" type="button">Login</button>
+    </div>
+  </header>
 
     <!-- Intro -->
     <section id="intro" class="intro" aria-label="Intro">
@@ -70,6 +64,10 @@
       </div>
       <small id="dob-hint" class="hint"></small>
 
+      
+
+      
+
       <button id="calculate" class="button primary" type="submit">Calculate</button>
 
       <p class="footer-note">Inspired by the timeless wisdom of Pythagoras.</p>
@@ -86,7 +84,7 @@
     </section>
 
     <!-- Screen 3: Result -->
-      <section id="result" class="result-view hidden" aria-label="Results">
+    <section id="result" class="result-view hidden" aria-label="Results">
       <!-- Hero image card with overlay layer for download -->
       <div class="image-card">
         <!-- Background image (from model) -->
@@ -169,6 +167,7 @@
       <div class="actions" role="group" aria-label="Actions">
         <p class="download-note">Download & share your journey with someone who matters.</p>
         <button id="download" class="button download-btn">Share</button>
+        <button id="save-soulmap" class="button" type="button">Save SoulMap</button>
       </div>
 
       <!-- Chat Box -->
@@ -190,72 +189,40 @@
       </section>
 
       <a href="#" id="try-again" class="try-again">Try again</a>
-      <section id="cta-register" class="hidden" aria-label="Register CTA">
-        <p>Bạn có thể đăng ký để lưu SoulMap và chat cho lần sau</p>
-        <button id="btn-register-save" class="button primary">Register to Save</button>
-      </section>
-      <section id="cta-save-current" class="hidden" aria-label="Save Current SoulMap">
-        <p>Bạn có muốn lưu SoulMap hiện tại vào tài khoản không?</p>
-        <div class="actions">
-          <button id="btn-save-current" class="button primary">Save SoulMap</button>
-          <button id="btn-dismiss-save" class="button">Bỏ qua</button>
-        </div>
-      </section>
-      <section id="my-soulmaps" class="hidden" aria-label="My SoulMaps">
-        <h2>My SoulMaps</h2>
-        <div id="soulmaps-list"></div>
-      </section>
     </section>
   </div>
-  <script src="/env.js" defer></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js" defer></script>
-  <script src="app.js" defer></script>
 
-  <div id="auth-modal" class="modal hidden">
+  <div id="register-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="register-title">
     <div class="modal-card">
-      <h3 class="modal-title" id="auth-title">Login</h3>
-      <label class="label" for="auth-email">Email</label>
-      <input id="auth-email" class="input" type="email" />
-      <label class="label" for="auth-password">Password</label>
-      <input id="auth-password" class="input" type="password" />
+      <h3 id="register-title">Register to save SoulMap</h3>
+      <label for="reg-email">Email</label>
+      <input id="reg-email" type="email" placeholder="you@example.com" />
+      <label for="reg-password">Password</label>
+      <input id="reg-password" type="password" placeholder="••••••••" />
       <div class="modal-actions">
-        <button id="btn-do-login" class="button primary">Sign in</button>
-        <button id="btn-do-register" class="button primary hidden">Create account</button>
-        <small id="auth-switch" class="hint"><a href="#" id="link-to-register">Don’t have an account? Register</a><a href="#" id="link-to-login" class="hidden">Already have an account? Login</a></small>
-      </div>
-      <div id="auth-msg" class="hint" aria-live="polite"></div>
-      <div class="modal-footer">
-        <button id="auth-close" class="button">Close</button>
+        <button id="reg-submit" class="button primary" type="button">Register</button>
+        <button id="reg-cancel" class="button" type="button">Cancel</button>
       </div>
     </div>
   </div>
 
-  <div id="profile-modal" class="modal hidden">
+  <div id="login-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="login-title">
     <div class="modal-card">
-      <h3 class="modal-title">Edit Profile</h3>
-      <label class="label" for="profile-full-name">Full Name</label>
-      <input id="profile-full-name" class="input" type="text" />
-      <label class="label" for="profile-lang">Language</label>
-      <select id="profile-lang" class="select">
-        <option value="en">English</option>
-        <option value="zh">Chinese</option>
-        <option value="vi">Vietnamese</option>
-        <option value="fr">French</option>
-        <option value="es">Spanish</option>
-        <option value="ja">Japanese</option>
-        <option value="ko">Korean</option>
-        <option value="de">German</option>
-        <option value="ru">Russian</option>
-      </select>
-      <label class="label" for="profile-dob">Date of Birth</label>
-      <input id="profile-dob" class="input" type="date" />
+      <h3 id="login-title">Member Login</h3>
+      <label for="login-email">Email</label>
+      <input id="login-email" type="email" placeholder="you@example.com" />
+      <label for="login-password">Password</label>
+      <input id="login-password" type="password" placeholder="••••••••" />
       <div class="modal-actions">
-        <button id="btn-save-profile" class="button primary">Save</button>
-      </div>
-      <div class="modal-footer">
-        <button id="profile-close" class="button">Close</button>
+        <button id="login-submit" class="button primary" type="button">Login</button>
+        <button id="login-cancel" class="button" type="button">Cancel</button>
       </div>
     </div>
   </div>
+
+
+  <script src="/env.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="app.js"></script>
 </body>
 </html>

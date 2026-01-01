@@ -89,14 +89,13 @@ body {
 .actions { display:flex; flex-direction: column; align-items: center; gap:8px; justify-content:center; margin-top: 10px; }
 .try-again { display:block; text-align:center; margin-top: 8px; color: var(--accent); text-decoration: none; }
 
+
 /* Share modal */
-.modal { position: fixed; inset: 0; background: rgba(0,0,0,0.88); display: none; align-items: center; justify-content: center; z-index: 1200; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
+.modal { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: none; align-items: center; justify-content: center; z-index: 1000; }
 .modal:not(.hidden) { display:flex; }
-.modal-card { background: #0f1738; border: 1px solid rgba(255,255,255,0.18); border-radius: 16px; padding: 12px; width: calc(100% - 32px); max-width: 360px; color: #E6EBFF; }
+.modal-card { background: var(--surface); border: 1px solid rgba(255,255,255,0.18); border-radius: 16px; padding: 12px; width: calc(100% - 32px); max-width: 360px; }
 .modal-title { margin: 4px 0 8px; }
 .modal-actions { display:flex; flex-direction: column; gap:8px; }
-.hint#auth-switch { color: #ffffff; }
-#auth-switch a { color: #ffffff; }
 .modal-footer { display:flex; justify-content: flex-end; margin-top: 10px; }
 
 /* Visit count hint spacing and style */
@@ -218,3 +217,11 @@ body {
 
 /* Titles use Cormorant */
 .section-title, .chat-hero-title { font-family: 'Cormorant Garamond', serif; }
+.modal-card{background:#101322;color:#fff;padding:20px;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,0.35);width:90%;max-width:420px}
+.modal-card input{width:100%;margin:6px 0 14px 0;padding:10px;border:1px solid rgba(255,255,255,0.15);border-radius:8px;background:#0c0f1e;color:#fff}
+.modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:8px}
+.auth-row{margin:12px 0}
+.auth-actions{margin-left:auto}
+.auth-actions .button{min-width:96px}
+.auth-actions{margin-left:auto; display:flex; align-items:center; gap:8px}
+.auth-user{color: var(--text-muted); font-size: 14px}

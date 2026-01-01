@@ -1,11 +1,6 @@
 // app.js
 /* ========== CONFIG ========== */
 const DIFY_API_URL = "/api/workflow";  // gọi qua proxy nội bộ, không lộ key
-let supabaseClient = null;
-let supaSession = null;
-let currentUser = null;
-let currentSoulmapId = null;
-let authMode = 'login';
 
 /* ========== DOM refs ========== */
 const el = (id) => document.getElementById(id);
@@ -45,35 +40,6 @@ const secShare = el('sec-share');
 const btnShare   = el('share');
 const btnDownload= el('download');
 const tryAgain   = el('try-again');
-const btnLogin   = el('btn-login');
-const userMenu   = el('user-menu');
-const btnLogout  = el('btn-logout');
-const btnEditProfile = el('btn-edit-profile');
-const btnMySoulmaps = el('btn-my-soulmaps');
-const authModal = el('auth-modal');
-const authEmail = el('auth-email');
-const authPassword = el('auth-password');
-const btnDoLogin = el('btn-do-login');
-const btnDoRegister = el('btn-do-register');
-const authClose = el('auth-close');
-const profileModal = el('profile-modal');
-const profileFullName = el('profile-full-name');
-const profileLang = el('profile-lang');
-const profileDob = el('profile-dob');
-const btnSaveProfile = el('btn-save-profile');
-const profileClose = el('profile-close');
-const ctaRegister = el('cta-register');
-const btnRegisterSave = el('btn-register-save');
-const ctaSaveCurrent = el('cta-save-current');
-const btnSaveCurrent = el('btn-save-current');
-const btnDismissSave = el('btn-dismiss-save');
-const mySoulmapsSec = el('my-soulmaps');
-const soulmapsList = el('soulmaps-list');
-const btnRegisterHeader = el('btn-register-header');
-const authTitle = el('auth-title');
-const linkToRegister = el('link-to-register');
-const linkToLogin = el('link-to-login');
-const authMsg = el('auth-msg');
 
 // Name + Caption under hero
 const displayName = el('display-name');
@@ -91,6 +57,138 @@ const shareClose     = el('share-close');
 /* ========== STATE ========== */
 let currentLang = 'en';
 let lastState   = { core:null, interpretation:null, imageUrl:'', share:{}, personalYear: undefined, personalYearAdvice: '', fullName: '' };
+
+let supabaseClient = null;
+let currentUser = null;
+
+function initSupabase(){
+  const url = window.SUPABASE_URL;
+  const key = window.SUPABASE_ANON_KEY;
+  if (!url || !key || !window.supabase) return;
+  supabaseClient = window.supabase.createClient(url, key);
+  supabaseClient.auth.onAuthStateChange((event, session)=>{
+    currentUser = session?.user || null;
+    updateAuthUI();
+  });
+}
+
+function updateAuthUI(){
+  const ctaId = 'register-cta';
+  let btn = document.getElementById(ctaId);
+  if (!currentUser){
+    if (!btn){
+      btn = document.createElement('button');
+      btn.id = ctaId; btn.className = 'button';
+      btn.textContent = 'Register to save SoulMap';
+      btn.addEventListener('click', openRegisterModal);
+      const host = document.getElementById('chat-box');
+      host && host.appendChild(btn);
+    }
+  } else {
+    btn && btn.remove();
+  }
+  const authBtn = document.getElementById('auth-btn');
+  const authUser = document.getElementById('auth-user');
+  if (authBtn){
+    if (currentUser){
+      authBtn.textContent = 'Logout';
+      authBtn.onclick = async ()=>{
+        try{ await supabaseClient?.auth?.signOut(); }catch(e){}
+        currentUser = null;
+        window.__suppressChat = false;
+        show(introSec);
+        hide(resultSec);
+      };
+      if (authUser) authUser.textContent = currentUser.email || '';
+    } else {
+      authBtn.textContent = 'Login';
+      authBtn.onclick = openLoginModal;
+      if (authUser) authUser.textContent = '';
+    }
+  }
+}
+
+function openRegisterModal(){
+  const m = document.getElementById('register-modal');
+  if (!m) return;
+  m.classList.remove('hidden');
+}
+
+function closeRegisterModal(){
+  const m = document.getElementById('register-modal');
+  if (!m) return;
+  m.classList.add('hidden');
+}
+
+async function handleRegisterSubmit(){
+  try{
+    if (!supabaseClient) return;
+    const emailEl = document.getElementById('reg-email');
+    const passEl = document.getElementById('reg-password');
+    const email = emailEl ? emailEl.value.trim() : '';
+    const password = passEl ? passEl.value : '';
+    if (!email || !password) return;
+    const { data, error } = await supabaseClient.auth.signUp({ email, password });
+    if (error) return;
+    await ensureProfile(data.user);
+    await trySaveSoulMap();
+    closeRegisterModal();
+  }catch(e){}
+}
+
+async function promptSignUp(){
+  try{
+    if (!supabaseClient) return;
+    const email = window.prompt('Email');
+    const password = window.prompt('Password');
+    if (!email || !password) return;
+    const { data, error } = await supabaseClient.auth.signUp({ email, password });
+    if (error) throw error;
+    await ensureProfile(data.user);
+    await trySaveSoulMap();
+  }catch(e){}
+}
+
+async function ensureProfile(user){
+  try{
+    if (!user || !supabaseClient) return;
+    const nameEl = document.getElementById('full-name');
+    const langEl = document.getElementById('lang');
+    const yearEl = document.getElementById('year');
+    const monthEl = document.getElementById('month');
+    const dayEl = document.getElementById('day');
+    const full_name = nameEl ? nameEl.value.trim() : '';
+    const lang = langEl ? langEl.value : 'en';
+    const y = yearEl ? yearEl.value : '';
+    const m = monthEl ? monthEl.value : '';
+    const d = dayEl ? dayEl.value : '';
+    const date_of_birth = (y && m && d) ? `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}` : null;
+    await supabaseClient.from('profiles').upsert({ id: user.id, full_name, lang, date_of_birth }, { onConflict: 'id' });
+  }catch(e){}
+}
+
+async function trySaveSoulMap(){
+  try{
+    if (!currentUser || !supabaseClient) return;
+    const payload = {
+      user_id: currentUser.id,
+      life_path: Number((lastState.core || {}).life_path) || null,
+      output: lastState || {},
+      card_image_url: window.soulmapImageUrl || ''
+    };
+    const { data } = await supabaseClient.from('soulmaps').insert(payload).select('id').limit(1);
+    const row = Array.isArray(data) ? data[0] : null;
+    window.__currentSoulmapId = row?.id || null;
+  }catch(e){}
+}
+
+async function saveChatMessage(role, text, intent=null){
+  try{
+    if (!currentUser || !supabaseClient) return;
+    const soulmap_id = window.__currentSoulmapId || null;
+    await supabaseClient.from('chat_messages').insert({ user_id: currentUser.id, soulmap_id, role, intent, content: text });
+  }catch(e){}
+}
 
 /* ========== Loading Quotes ========== */
 const LOADING_QUOTES = [
@@ -123,7 +221,7 @@ function stopLoadingQuotes(){
 (function initDateSelectors(){
   const now = new Date();
   const yMin = 1900, yMax = now.getFullYear();
-  for(let y=yMax; y>=yMin; y--){
+  for(let y=yMax; y>=yMin; y++){
     const o = document.createElement('option'); o.value=o.textContent=String(y);
     selYear.appendChild(o);
   }
@@ -132,7 +230,11 @@ function stopLoadingQuotes(){
     o.textContent = String(m);
     selMonth.appendChild(o);
   }
+  // Default to 1989-01-01
+  selYear.value = '1989';
+  selMonth.value = '01';
   updateDays();
+  selDay.value = '01';
   selYear.addEventListener('change', updateDays);
   selMonth.addEventListener('change', updateDays);
   function updateDays(){
@@ -212,250 +314,6 @@ function setBusy(b){
   }
   else  { hide(loadingSec); }
   if (b) startLoadingQuotes(); else stopLoadingQuotes();
-}
-function openModal(m){ m && m.classList.remove('hidden'); }
-function closeModal(m){ m && m.classList.add('hidden'); }
-function initSupabase(){
-  const url = window.SUPABASE_URL || '';
-  const key = window.SUPABASE_ANON_KEY || '';
-  if (window.supabase && url && key){
-    supabaseClient = window.supabase.createClient(url, key);
-  }
-}
-function setAuthMode(mode){
-  authMode = mode;
-  if (authTitle) authTitle.textContent = mode === 'register' ? 'Register' : 'Login';
-  btnDoLogin?.classList.toggle('hidden', mode !== 'login');
-  btnDoRegister?.classList.toggle('hidden', mode !== 'register');
-  linkToRegister?.classList.toggle('hidden', mode !== 'login');
-  linkToLogin?.classList.toggle('hidden', mode !== 'register');
-  if (authMsg) { authMsg.textContent = ''; authMsg.style.color = '#ffb3b3'; }
-}
-function setButtonLoading(btn, loadingText){
-  if (!btn) return;
-  if (!btn.dataset.origText) btn.dataset.origText = btn.textContent || '';
-  btn.disabled = true;
-  btn.textContent = loadingText || 'Loading...';
-}
-function clearButtonLoading(btn){
-  if (!btn) return;
-  btn.disabled = false;
-  if (btn.dataset.origText) btn.textContent = btn.dataset.origText;
-}
-function setAuthMessage(text, type){
-  if (!authMsg) return;
-  authMsg.textContent = text || '';
-  authMsg.style.color = type === 'success' ? '#7EE787' : '#ffb3b3';
-}
-async function updateAuthUI(session){
-  supaSession = session || null;
-  currentUser = session?.user || null;
-  if (currentUser){
-    btnLogin?.classList.add('hidden');
-    userMenu?.classList.remove('hidden');
-    ctaRegister?.classList.add('hidden');
-    btnRegisterHeader?.classList.add('hidden');
-    const emailSpan = document.getElementById('user-email');
-    if (emailSpan) emailSpan.textContent = currentUser.email || '';
-    await loadProfilePrefill();
-    if (lastState && !currentSoulmapId){
-      ctaSaveCurrent?.classList.remove('hidden');
-    }
-  } else {
-    btnLogin?.classList.remove('hidden');
-    userMenu?.classList.add('hidden');
-    ctaSaveCurrent?.classList.add('hidden');
-    btnRegisterHeader?.classList.remove('hidden');
-    ctaRegister?.classList.add('hidden');
-    currentSoulmapId = null;
-    if (inputName) inputName.value = '';
-    if (inputLang) { inputLang.value = 'vi'; setLang('vi'); }
-    if (selYear) selYear.value = '';
-    if (selMonth) selMonth.value = '';
-    if (selDay) selDay.value = '';
-    if (chatMessages) chatMessages.innerHTML = '';
-    if (chatBox) { chatBox.classList.add('hidden'); chatBox.style.display = ''; }
-    hide(resultSec);
-    show(form);
-    show(introSec);
-  }
-}
-async function initAuth(){
-  initSupabase();
-  if (!supabaseClient) return;
-  const { data } = await supabaseClient.auth.getSession();
-  await updateAuthUI(data?.session || null);
-  supabaseClient.auth.onAuthStateChange(async (_event, session) => {
-    await updateAuthUI(session || null);
-  });
-}
-function openAuth(){ openModal(authModal); }
-function closeAuth(){ closeModal(authModal); }
-function openProfile(){ openModal(profileModal); }
-function closeProfile(){ closeModal(profileModal); }
-btnLogin?.addEventListener('click', ()=>{ setAuthMode('login'); openAuth(); });
-btnRegisterHeader?.addEventListener('click', ()=>{ setAuthMode('register'); openAuth(); });
-authClose?.addEventListener('click', closeAuth);
-btnEditProfile?.addEventListener('click', openProfile);
-profileClose?.addEventListener('click', closeProfile);
-btnRegisterSave?.addEventListener('click', ()=>{ setAuthMode('register'); openAuth(); });
-linkToRegister?.addEventListener('click', (e)=>{ e.preventDefault(); setAuthMode('register'); });
-linkToLogin?.addEventListener('click', (e)=>{ e.preventDefault(); setAuthMode('login'); });
-btnLogout?.addEventListener('click', async ()=>{
-  if (!supabaseClient) return;
-  await supabaseClient.auth.signOut();
-  currentSoulmapId = null;
-});
-async function handleSignIn(){
-  if (!supabaseClient){ setAuthMessage('Không thể khởi tạo Supabase. Kiểm tra URL/Key.', 'error'); return; }
-  const email = String(authEmail?.value || '').trim();
-  const password = String(authPassword?.value || '').trim();
-  if (!email || !password){ setAuthMessage('Vui lòng nhập email và mật khẩu', 'error'); return; }
-  try{
-    setButtonLoading(btnDoLogin, 'Signing in...');
-    const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
-    if (error) throw error;
-    setAuthMessage('Đăng nhập thành công', 'success');
-    closeAuth();
-    showNotice('✅ Signed in');
-  }catch(err){
-    const msg = /invalid|credentials/i.test(err?.message || '')
-      ? 'Email hoặc mật khẩu không đúng'
-      : (err?.message || 'Đăng nhập thất bại');
-    setAuthMessage(msg, 'error');
-  }finally{
-    clearButtonLoading(btnDoLogin);
-  }
-}
-btnDoLogin?.addEventListener('click', (e)=>{ e.preventDefault(); handleSignIn(); });
-async function handleRegister(){
-  if (!supabaseClient){ setAuthMessage('Không thể khởi tạo Supabase. Kiểm tra URL/Key.', 'error'); return; }
-  const email = String(authEmail?.value || '').trim();
-  const password = String(authPassword?.value || '').trim();
-  if (!email || !password){ setAuthMessage('Vui lòng nhập email và mật khẩu', 'error'); return; }
-  try{
-    setButtonLoading(btnDoRegister, 'Creating...');
-    const { data, error } = await supabaseClient.auth.signUp({ email, password });
-    if (error) throw error;
-    const user = data?.user;
-    if (user){
-      const payload = {
-        id: user.id,
-        full_name: inputName?.value?.trim() || null,
-        lang: (inputLang?.value || currentLang || 'vi'),
-        date_of_birth: (selYear?.value && selMonth?.value && selDay?.value) ? `${selYear.value}-${selMonth.value}-${selDay.value}` : null
-      };
-      await supabaseClient.from('profiles').insert(payload);
-      if (window.soulmapData && lastState){
-        const insertPayload = {
-          user_id: user.id,
-          life_path: Number(lastState?.core?.life_path || 0),
-          output: window.soulmapData || {},
-          card_image_url: window.soulmapImageUrl || ''
-        };
-        const { data: ins } = await supabaseClient.from('soulmaps').insert(insertPayload).select('id').single();
-        currentSoulmapId = ins?.id || null;
-        const items = chatMessages?.querySelectorAll('.chat-msg');
-        const rows = [];
-        items?.forEach(item => {
-          const role = item.classList.contains('assistant') ? 'assistant' : 'user';
-          const text = item.querySelector('.bubble')?.textContent || '';
-          rows.push({ user_id: user.id, soulmap_id: currentSoulmapId, role, content: text });
-        });
-        if (rows.length) await supabaseClient.from('chat_messages').insert(rows);
-      }
-      setAuthMessage('✅ Account created. Your SoulMap is saved.', 'success');
-      closeAuth();
-      showNotice('✅ Account created. Your SoulMap is saved.');
-    }
-  }catch(err){
-    const msg = /exist|already|duplicate|registered/i.test(err?.message || '')
-      ? 'Email đã tồn tại'
-      : (err?.message || 'Đăng ký thất bại');
-    setAuthMessage(msg, 'error');
-  }finally{
-    clearButtonLoading(btnDoRegister);
-  }
-}
-btnDoRegister?.addEventListener('click', (e)=>{ e.preventDefault(); handleRegister(); });
-document.addEventListener('click', (e)=>{
-  const t = e.target;
-  if (!t) return;
-  if (t.id === 'btn-do-login'){ e.preventDefault(); handleSignIn(); }
-  if (t.id === 'btn-do-register'){ e.preventDefault(); handleRegister(); }
-});
-btnSaveProfile?.addEventListener('click', async ()=>{
-  if (!supabaseClient || !currentUser) return;
-  const payload = {
-    full_name: String(profileFullName?.value || '').trim(),
-    lang: String(profileLang?.value || '').trim(),
-    date_of_birth: String(profileDob?.value || '').trim() || null
-  };
-  await supabaseClient.from('profiles').update(payload).eq('id', currentUser.id);
-  if (payload.full_name) inputName.value = payload.full_name;
-  if (payload.lang) { inputLang.value = payload.lang; setLang(payload.lang); }
-  if (payload.date_of_birth){
-    const [y,m,d] = payload.date_of_birth.split('-');
-    selYear.value = y; selMonth.value = m; selDay.value = d;
-  }
-  closeProfile();
-});
-async function loadProfilePrefill(){
-  if (!supabaseClient || !currentUser) return;
-  const { data } = await supabaseClient.from('profiles').select('full_name, lang, date_of_birth').eq('id', currentUser.id).maybeSingle();
-  if (!data){
-    const def = {
-      id: currentUser.id,
-      full_name: inputName?.value?.trim() || 'User',
-      lang: (inputLang?.value || currentLang || 'vi'),
-      date_of_birth: null
-    };
-    await supabaseClient.from('profiles').insert(def);
-    return;
-  }
-  if (data.full_name) inputName.value = data.full_name;
-  if (data.lang) { inputLang.value = data.lang; setLang(data.lang); }
-  if (data.date_of_birth){
-    const dob = String(data.date_of_birth);
-    const [y,m,d] = dob.split('-');
-    selYear.value = y; selMonth.value = m; selDay.value = d;
-  }
-}
-function showNotice(text){
-  const n = document.createElement('div');
-  n.textContent = text;
-  n.style.position='fixed';
-  n.style.bottom='16px';
-  n.style.right='16px';
-  n.style.background='rgba(0,0,0,0.7)';
-  n.style.color='#fff';
-  n.style.padding='10px 12px';
-  n.style.borderRadius='10px';
-  n.style.zIndex='9999';
-  document.body.appendChild(n);
-  setTimeout(()=>{ n.remove(); }, 3000);
-}
-async function afterCalculate(data, full_name, lang, dob){
-  if (currentUser && supabaseClient){
-    const insertPayload = {
-      user_id: currentUser.id,
-      life_path: Number(data?.core?.life_path || 0),
-      output: window.soulmapData || {},
-      card_image_url: window.soulmapImageUrl || ''
-    };
-    const { data: ins } = await supabaseClient.from('soulmaps').insert(insertPayload).select('id').single();
-    currentSoulmapId = ins?.id || null;
-    ctaRegister?.classList.add('hidden');
-  } else {
-    ctaRegister?.classList.remove('hidden');
-  }
-}
-async function saveChatPair(userText, assistantText){
-  if (currentUser && currentSoulmapId && supabaseClient){
-    const u = { user_id: currentUser.id, soulmap_id: currentSoulmapId, role: 'user', content: userText };
-    const a = { user_id: currentUser.id, soulmap_id: currentSoulmapId, role: 'assistant', content: assistantText };
-    await supabaseClient.from('chat_messages').insert([u,a]);
-  }
 }
 
 function li(text){
@@ -662,6 +520,19 @@ function tryPlayOpen(){
 // attempt on load; fallback to first user interaction
 setTimeout(tryPlayOpen, 300);
 document.addEventListener('pointerdown', tryPlayOpen, { once: true });
+initSupabase();
+updateAuthUI();
+const regSubmit = document.getElementById('reg-submit');
+const regCancel = document.getElementById('reg-cancel');
+if (regSubmit) regSubmit.addEventListener('click', handleRegisterSubmit);
+if (regCancel) regCancel.addEventListener('click', closeRegisterModal);
+const loginBtn = document.getElementById('login-btn');
+const loginSubmit = document.getElementById('login-submit');
+const loginCancel = document.getElementById('login-cancel');
+if (loginBtn) loginBtn.addEventListener('click', openLoginModal);
+if (loginSubmit) loginSubmit.addEventListener('click', handleLoginSubmit);
+if (loginCancel) loginCancel.addEventListener('click', closeLoginModal);
+// My SoulMaps disabled for stability
 
 function render({ core, interpretation, imageUrl, share, personalYear, personalYearAdvice, fullName, core_details, lang, chatPrompts }){
   const lifePath = Number(core?.life_path);
@@ -678,7 +549,6 @@ function render({ core, interpretation, imageUrl, share, personalYear, personalY
     if (imageUrl) { imgHero.src = imageUrl; window.soulmapImageUrl = imageUrl; }
   });
  
-  // render chips từ core_details
   renderCoreChips(core, core_details, lang || core?.lang || 'en', personalYear, personalYearAdvice);
 
   // name + caption under hero
@@ -722,12 +592,11 @@ function render({ core, interpretation, imageUrl, share, personalYear, personalY
     sessionStorage.setItem('soul_user', uid);
   } catch {}
 
-  // render chip cố định từ suggested_questions (không reset khi gửi/nhận tin)
-  if (chatPrompts) {
+  const suppressChat = !!window.__suppressChat;
+  if (!suppressChat && chatPrompts) {
     const suggested = Array.isArray(chatPrompts)
       ? chatPrompts
       : (chatPrompts?.suggested_questions || []);
-    // Chỉ hiển thị 5 chip mới từ kết quả và giữ cố định
     renderFixedChips(suggested);
     renderChatHook({ chatPrompts, fullName, lang, core });
   }
@@ -737,8 +606,7 @@ function render({ core, interpretation, imageUrl, share, personalYear, personalY
     if (chatMessages) chatMessages.innerHTML = '';
   } catch {}
 
-  // mở khối Chatbot bên dưới (giữ mạch hội thoại)
-  openChat();
+  if (!suppressChat) openChat();
 
   // hiển thị result
   show(resultSec);
@@ -782,22 +650,21 @@ form.addEventListener('submit', async (e)=>{
   try { audio.loading.currentTime = 0; } catch {}
   playSafe(audio.loading);
 
-  const dob = `${yyyy}-${mm}-${dd}`;
+  const mmPad = String(mm).padStart(2,'0');
+  const ddPad = String(dd).padStart(2,'0');
+  const dob = `${yyyy}-${mmPad}-${ddPad}`;
 
   try{
     setBusy(true);
     const rawLang = (inputLang?.value || currentLang || 'en').trim();
     const lang = normalizeLang(rawLang);
-    let raw = loadWFCache(full_name, dob, lang);
-    if (!isValidWFResponse(raw)) {
-      raw = await callDify(full_name, dob, lang);
-      saveWFCache(full_name, dob, lang, raw);
-    }
+    const raw = await callDify(full_name, dob, lang);
+    saveWFCache(full_name, dob, lang, raw);
     const data = normalize(raw);
 
     lastState = { ...data, fullName: full_name, lang, dob };
     render({ ...data, fullName: full_name, lang });
-    await afterCalculate(data, full_name, lang, dob);
+    trySaveSoulMap();
     try {
       const r = await fetch('/api/visit', { method: 'POST' });
       const j = await r.json();
@@ -820,11 +687,8 @@ form.addEventListener('submit', async (e)=>{
 /* ========== Try again ========== */
 tryAgain.addEventListener('click', async (e)=>{
   e.preventDefault();
-  hide(resultSec);
-  hide(loadingSec);
-  show(form);
-  show(introSec);
-  if (currentUser) { await loadProfilePrefill(); }
+  await clearAppCache();
+  location.reload();
 });
 
 /* ========== Share & Download (tối thiểu) ========== */
@@ -854,6 +718,17 @@ if (btnShare && !window.__shareBound) {
     } catch(e){}
   });
 }
+
+const btnSaveSoulMap = document.getElementById('save-soulmap');
+if (btnSaveSoulMap && !window.__saveBound){
+  window.__saveBound = true;
+  btnSaveSoulMap.addEventListener('click', async ()=>{
+    await trySaveSoulMap();
+    alert('SoulMap saved');
+  });
+}
+
+ 
 
 // ===== Share handlers =====
 // Share UI removed: closeShare and related listeners disabled
@@ -907,29 +782,6 @@ try{
 }catch(e){
   showVisitCount(getVisitCount());
 }
-document.addEventListener('DOMContentLoaded', ()=>{ initAuth(); });
-btnSaveCurrent?.addEventListener('click', async ()=>{
-  if (!supabaseClient || !currentUser || !lastState) return;
-  const insertPayload = {
-    user_id: currentUser.id,
-    life_path: Number(lastState?.core?.life_path || 0),
-    output: window.soulmapData || {},
-    card_image_url: window.soulmapImageUrl || ''
-  };
-  const { data: ins } = await supabaseClient.from('soulmaps').insert(insertPayload).select('id').single();
-  currentSoulmapId = ins?.id || null;
-  const items = chatMessages?.querySelectorAll('.chat-msg');
-  const rows = [];
-  items?.forEach(item => {
-    const role = item.classList.contains('assistant') ? 'assistant' : 'user';
-    const text = item.querySelector('.bubble')?.textContent || '';
-    rows.push({ user_id: currentUser.id, soulmap_id: currentSoulmapId, role, content: text });
-  });
-  if (rows.length) await supabaseClient.from('chat_messages').insert(rows);
-  ctaSaveCurrent?.classList.add('hidden');
-  showNotice('✅ SoulMap hiện tại đã được lưu.');
-});
-btnDismissSave?.addEventListener('click', ()=>{ ctaSaveCurrent?.classList.add('hidden'); });
 
 // Global state for export
 window.soulmapData = null;
@@ -1649,6 +1501,15 @@ function appendMessage(role, text, meta = {}) {
   item.appendChild(bubble);
   chatMessages.appendChild(item);
   chatMessages.scrollTop = chatMessages.scrollHeight;
+  if (currentUser) saveChatMessage(role, text, meta?.intent || null);
+  else {
+    try{
+      const key = 'chat_messages_local';
+      const cur = parseMaybeJson(localStorage.getItem(key), []);
+      cur.push({ role, intent: meta?.intent || null, content: text, created_at: new Date().toISOString() });
+      localStorage.setItem(key, JSON.stringify(cur));
+    }catch(e){}
+  }
 }
 
 // Call chat API via server proxy (Dify-compatible payload)
@@ -1755,7 +1616,6 @@ async function sendChatMessage(text, isFirst = false, extraInputs = {}) {
     }
 
     appendMessage('assistant', meta.answer || '...', { next_action_id: meta.nextActionId || undefined });
-    await saveChatPair(raw, meta.answer || '');
 
     renderQuickReplies(meta.quickReplies);
 
@@ -1795,32 +1655,6 @@ if (chatVoice) {
     appendMessage('assistant', '🎤 Tính năng giọng nói sẽ sớm ra mắt.');
   });
 }
-
-btnMySoulmaps?.addEventListener('click', async ()=>{
-  if (!supabaseClient || !currentUser) return;
-  const { data } = await supabaseClient.from('soulmaps').select('id, life_path, created_at').order('created_at', { ascending: false });
-  if (soulmapsList) soulmapsList.innerHTML = '';
-  (data||[]).forEach(row => {
-    const b = document.createElement('button');
-    b.className = 'button';
-    b.textContent = `#${row.id} • LP ${row.life_path}`;
-    b.addEventListener('click', async ()=>{
-      const { data: one } = await supabaseClient.from('soulmaps').select('*').eq('id', row.id).single();
-      currentSoulmapId = one?.id || null;
-      const out = one?.output || {};
-      const name = out?.core?.full_name || inputName.value || '';
-      const lang = out?.meta?.lang || inputLang.value || 'en';
-      render({ ...normalize(out), fullName: name, lang });
-      const { data: chats } = await supabaseClient.from('chat_messages').select('role, content').eq('soulmap_id', row.id).order('created_at', { ascending: true });
-      if (chatMessages) chatMessages.innerHTML = '';
-      (chats||[]).forEach(m => appendMessage(m.role === 'assistant' ? 'assistant' : 'user', m.content || ''));
-      show(resultSec);
-      mySoulmapsSec?.classList.add('hidden');
-    });
-    soulmapsList?.appendChild(b);
-  });
-  mySoulmapsSec?.classList.remove('hidden');
-});
 
 function openChat() {
   if (chatBox) {
@@ -1863,111 +1697,17 @@ function renderChatHook(state) {
   }
 }
 
-/* ========== Submit ========== */
-function getVisitCount(){
-  try { return parseInt(localStorage.getItem('visit_count') || '0', 10) || 0; } catch(e){ return 0; }
-}
-function setVisitCount(n){
-  try { localStorage.setItem('visit_count', String(n)); } catch(e){}
-}
-function showVisitCount(n){
-  const elVC = document.getElementById('visit-count');
-  if (elVC) elVC.textContent = `Visits: ${n}`;
-}
-form.addEventListener('submit', async (e)=>{
-  e.preventDefault();
-  // Nếu đang submit thì bỏ qua để tránh trùng
-  if (window.__submitting) return;
-
-  // Lấy và kiểm tra dữ liệu trước khi đặt cờ
-  const full_name = inputName.value.trim();
-  const yyyy = selYear.value, mm = selMonth.value, dd = selDay.value;
-  if (!full_name || !yyyy || !mm || !dd) {
-    alert('Please fill all fields.');
-    // Đảm bảo không kẹt cờ nếu validate fail
-    window.__handledSubmit = false;
-    window.__submitting = false;
-    return;
-  }
-
-  // Đánh dấu bắt đầu một lượt submit (chỉ chạy một listener)
-  if (window.__handledSubmit) return; // đảm bảo chỉ một listener chạy mỗi lần
-  window.__handledSubmit = true;
-  window.__submitting = true;
-
-  // audio: start loading sound
-  try { audio.result.pause(); audio.result.currentTime = 0; } catch {}
-  try { audio.open.pause(); } catch {}
-  try { audio.loading.currentTime = 0; } catch {}
-  playSafe(audio.loading);
-
-  // Reset chat để bắt đầu phiên mới, chips sẽ render lại sau khi có kết quả
-  resetChatForCalculation();
-
-  const dob = `${yyyy}-${mm}-${dd}`;
-
-  try{
-    setBusy(true);
-    const rawLang = (inputLang?.value || currentLang || 'en').trim();
-    const lang = normalizeLang(rawLang);
-    let raw = loadWFCache(full_name, dob, lang);
-    if (!isValidWFResponse(raw)) {
-      raw = await callDify(full_name, dob, lang);
-      saveWFCache(full_name, dob, lang, raw);
-    }
-    const data = normalize(raw);
-
-    lastState = { ...data, fullName: full_name, lang, dob };
-    render({ ...data, fullName: full_name, lang });
-    try {
-      const r = await fetch('/api/visit', { method: 'POST' });
-      const j = await r.json();
-      showVisitCount(parseInt(j.visits || 0, 10));
-    } catch (e) { /* ignore */ }
-  }catch(err){
-    console.error(err);
-    const msg = /504|timeout|Gateway/i.test(err?.message || '')
-      ? 'Hệ thống quá tải hoặc kết nối chậm (504). Vui lòng thử lại sau.'
-      : 'Đã xảy ra lỗi. Vui lòng thử lại.';
-    alert(msg);
-    hide(resultSec); show(introSec);
-  }finally{
-    setBusy(false);
-    window.__submitting = false;
-    window.__handledSubmit = false; // reset guard sau mỗi submit
-  }
-});
+/* (removed duplicate Submit handler block to fix Calculate) */
 
 /* ========== Try again ========== */
 tryAgain.addEventListener('click', async (e)=>{
   e.preventDefault();
-  hide(resultSec);
-  hide(loadingSec);
-  show(form);
-  show(introSec);
-  if (currentUser) { await loadProfilePrefill(); }
+  await clearAppCache();
+  location.reload();
 });
 
 /* ========== Share & Download (tối thiểu) ========== */
 // Share UI removed
-
-if (btnDownload && !window.__downloadBound) {
-  window.__downloadBound = true;
-  btnDownload.addEventListener('click', async ()=>{
-    if (!window.soulmapImageUrl || !window.soulmapData){
-      alert('Chưa có ảnh để tải.'); return;
-    }
-    if (window.__downloading) return;
-    window.__downloading = true;
-    try {
-      await handleExport('download');
-    } finally {
-      window.__downloading = false;
-    }
-  });
-}
-
-// ===== Share handlers =====
 // Share UI removed: closeShare and related listeners disabled
 
 async function getImageFile(){
@@ -2360,4 +2100,88 @@ async function clearAppCache(){
       await Promise.all(keys.map(k => caches.delete(k)));
     }
   }catch{}
+}
+async function handleLoginSubmit(){
+  try{
+    if (!supabaseClient) return;
+    const emailEl = document.getElementById('login-email');
+    const passEl = document.getElementById('login-password');
+    const email = emailEl ? emailEl.value.trim() : '';
+    const password = passEl ? passEl.value : '';
+    if (!email || !password) return;
+    const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+    if (error) return;
+    closeLoginModal();
+    await prefillFormFromProfile();
+    await showLatestSoulMap();
+  }catch(e){}
+}
+
+async function showLatestSoulMap(){
+  try{
+    if (!supabaseClient || !supabaseClient.auth || !supabaseClient.from) return;
+    const session = await supabaseClient.auth.getSession();
+    const user = session?.data?.session?.user;
+    if (!user) return;
+    const { data: rows } = await supabaseClient
+      .from('soulmaps')
+      .select('id, output')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(1);
+    const row = Array.isArray(rows) ? rows[0] : null;
+    if (!row) return;
+    window.__currentSoulmapId = row.id;
+    const output = row.output || {};
+    const core = output.core || {};
+    const interpretation = output.interpretation || {};
+    const share = output.share || {};
+    window.__suppressChat = true;
+    hide(introSec);
+    hide(form);
+    show(resultSec);
+    render({ core, interpretation, imageUrl: '', share, personalYear: undefined, personalYearAdvice: '', fullName: core.full_name, core_details: {}, lang: core.lang, chatPrompts: null });
+  }catch(e){}
+}
+
+function openLoginModal(){
+  const m = document.getElementById('login-modal');
+  if (!m) return;
+  m.classList.remove('hidden');
+}
+
+function closeLoginModal(){
+  const m = document.getElementById('login-modal');
+  if (!m) return;
+  m.classList.add('hidden');
+}
+
+// My SoulMaps feature temporarily disabled
+async function prefillFormFromProfile(){
+  try{
+    if (!supabaseClient) return;
+    const session = await supabaseClient.auth.getSession();
+    const user = session?.data?.session?.user;
+    if (!user) return;
+    const { data } = await supabaseClient.from('profiles').select('*').eq('id', user.id).limit(1);
+    const row = Array.isArray(data) ? data[0] : null;
+    if (!row) return;
+    const nameEl = document.getElementById('full-name');
+    const langEl = document.getElementById('lang');
+    const yearEl = document.getElementById('year');
+    const monthEl = document.getElementById('month');
+    const dayEl = document.getElementById('day');
+    if (nameEl) nameEl.value = row.full_name || '';
+    if (langEl && row.lang) { langEl.value = row.lang; currentLang = row.lang; }
+    if (row.date_of_birth){
+      const [yy, mm, dd] = String(row.date_of_birth).split('-');
+      const mm2 = String(mm || '').padStart(2,'0');
+      const dd2 = String(dd || '').padStart(2,'0');
+      if (yearEl && yy) yearEl.value = yy;
+      if (monthEl && mm2) monthEl.value = mm2;
+      try { yearEl && yearEl.dispatchEvent(new Event('change')); } catch {}
+      try { monthEl && monthEl.dispatchEvent(new Event('change')); } catch {}
+      if (dayEl && dd2) dayEl.value = dd2;
+    }
+  }catch(e){}
 }
