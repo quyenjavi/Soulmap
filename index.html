@@ -23,7 +23,6 @@
           <span id="user-email"></span>
           <button id="btn-edit-profile" class="button">Edit Profile</button>
           <button id="btn-logout" class="button">Logout</button>
-          <button id="btn-my-soulmaps" class="button">My SoulMaps</button>
         </div>
       </div>
     </header>
@@ -187,24 +186,23 @@
           <button id="chat-voice" class="icon-btn" type="button" aria-label="Voice"><span>🎤</span></button>
           <button id="chat-send" class="button magic">Send</button>
         </div>
+        <div class="chat-actions" role="group" aria-label="Chat actions">
+          <button id="chat-clear" class="button">Clear Chat History</button>
+        </div>
       </section>
 
       <a href="#" id="try-again" class="try-again">Try again</a>
       <section id="cta-register" class="hidden" aria-label="Register CTA">
-        <p>Bạn có thể đăng ký để lưu SoulMap và chat cho lần sau</p>
+        <p>You can register to save your SoulMap and chat later</p>
         <button id="btn-register-save" class="button primary">Register to Save</button>
       </section>
       <section id="cta-save-current" class="hidden" aria-label="Save Current SoulMap">
-        <p>Bạn có muốn lưu SoulMap hiện tại vào tài khoản không?</p>
+        <p>Would you like to save the recent chat content?</p>
         <div class="actions">
           <button id="btn-save-current" class="button primary">Save SoulMap</button>
-          <button id="btn-dismiss-save" class="button">Bỏ qua</button>
         </div>
       </section>
-      <section id="my-soulmaps" class="hidden" aria-label="My SoulMaps">
-        <h2>My SoulMaps</h2>
-        <div id="soulmaps-list"></div>
-      </section>
+      
     </section>
   </div>
   <script src="/env.js" defer></script>

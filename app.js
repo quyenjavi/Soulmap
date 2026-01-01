@@ -278,6 +278,9 @@ async function updateAuthUI(session){
     const emailSpan = document.getElementById('user-email');
     if (emailSpan) emailSpan.textContent = currentUser.email || '';
     await loadProfilePrefill();
+    await preloadLastSavedData();
+    await showAllChatsForUser();
+    triggerRecalculateIfReady();
     if (lastState && !currentSoulmapId){
       ctaSaveCurrent?.classList.remove('hidden');
     }
@@ -300,6 +303,84 @@ async function updateAuthUI(session){
     show(introSec);
   }
 }
+async function preloadLastSavedData(){
+  try{
+    if (!supabaseClient || !currentUser) return;
+    const { data: sm } = await supabaseClient
+      .from('soulmaps')
+      .select('*')
+      .eq('user_id', currentUser.id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!sm) return;
+    window.__lastSavedSoulmapId = sm.id || null;
+    window.__lastSavedOutput = sm.output || {};
+    const { data: chats } = await supabaseClient
+      .from('chat_messages')
+      .select('role, content')
+      .eq('soulmap_id', sm.id)
+      .order('created_at', { ascending: true });
+    window.__lastSavedChats = chats || [];
+  }catch{}
+}
+function triggerRecalculateIfReady(){
+  try{
+    if (window.__autoCalcOnLoginDone) return;
+    const full_name = String(inputName?.value||'').trim();
+    const yyyy = selYear?.value||'';
+    const mm = selMonth?.value||'';
+    const dd = selDay?.value||'';
+    if (full_name && yyyy && mm && dd){
+      window.__autoCalcOnLoginDone = true;
+      form?.dispatchEvent(new Event('submit'));
+    }
+  }catch{}
+}
+async function showAllChatsForUser(){
+  try{
+    if (!supabaseClient || !currentUser) return;
+    const { data: chats } = await supabaseClient
+      .from('chat_messages')
+      .select('role, content')
+      .eq('user_id', currentUser.id)
+      .order('created_at', { ascending: true });
+    if (chatMessages){
+      chatMessages.innerHTML = '';
+      (chats||[]).forEach(m => appendMessage(m.role === 'assistant' ? 'assistant' : 'user', m.content || ''));
+    }
+    openChat();
+  }catch{}
+}
+async function showLastSavedConvo(){
+  try{
+    if (!supabaseClient || !currentUser) return;
+    const { data: sm } = await supabaseClient
+      .from('soulmaps')
+      .select('*')
+      .eq('user_id', currentUser.id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!sm) return;
+    currentSoulmapId = sm.id || null;
+    const out = sm.output || {};
+    const name = out?.core?.full_name || inputName.value || '';
+    const lang = out?.meta?.lang || inputLang.value || 'en';
+    render({ ...normalize(out), fullName: name, lang });
+    const { data: chats } = await supabaseClient
+      .from('chat_messages')
+      .select('role, content')
+      .eq('soulmap_id', sm.id)
+      .order('created_at', { ascending: true });
+    if (chatMessages) {
+      chatMessages.innerHTML = '';
+      (chats||[]).forEach(m => appendMessage(m.role === 'assistant' ? 'assistant' : 'user', m.content || ''));
+    }
+    show(resultSec);
+    if (chatBox) { chatBox.classList.remove('hidden'); chatBox.style.display = 'block'; }
+  }catch{}
+}
 async function initAuth(){
   initSupabase();
   if (!supabaseClient) return;
@@ -311,7 +392,24 @@ async function initAuth(){
 }
 function openAuth(){ openModal(authModal); }
 function closeAuth(){ closeModal(authModal); }
-function openProfile(){ openModal(profileModal); }
+async function openProfile(){
+  try{
+    if (!(await ensureSupabase())) { openModal(profileModal); return; }
+    if (!currentUser) { openModal(profileModal); return; }
+    const { data } = await supabaseClient
+      .from('profiles')
+      .select('full_name, lang, date_of_birth')
+      .eq('id', currentUser.id)
+      .maybeSingle();
+    const fullName = data?.full_name || inputName?.value || '';
+    const lang = data?.lang || inputLang?.value || 'en';
+    const dob = String(data?.date_of_birth || '') || '';
+    if (profileFullName) profileFullName.value = fullName;
+    if (profileLang) profileLang.value = lang;
+    if (profileDob) profileDob.value = dob;
+  }catch{}
+  openModal(profileModal);
+}
 function closeProfile(){ closeModal(profileModal); }
 btnLogin?.addEventListener('click', ()=>{ setAuthMode('login'); openAuth(); });
 btnRegisterHeader?.addEventListener('click', ()=>{ setAuthMode('register'); openAuth(); });
@@ -327,21 +425,21 @@ btnLogout?.addEventListener('click', async ()=>{
   currentSoulmapId = null;
 });
 async function handleSignIn(){
-  if (!(await ensureSupabase())){ setAuthMessage('Không thể khởi tạo Supabase. Kiểm tra URL/Key.', 'error'); return; }
+  if (!(await ensureSupabase())){ setAuthMessage('Cannot initialize Supabase. Check URL/Key.', 'error'); return; }
   const email = String(authEmail?.value || '').trim();
   const password = String(authPassword?.value || '').trim();
-  if (!email || !password){ setAuthMessage('Vui lòng nhập email và mật khẩu', 'error'); return; }
+  if (!email || !password){ setAuthMessage('Please enter email and password', 'error'); return; }
   try{
     setButtonLoading(btnDoLogin, 'Signing in...');
     const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
     if (error) throw error;
-    setAuthMessage('Đăng nhập thành công', 'success');
+    setAuthMessage('Signed in successfully', 'success');
     closeAuth();
     showNotice('✅ Signed in');
   }catch(err){
     const msg = /invalid|credentials/i.test(err?.message || '')
-      ? 'Email hoặc mật khẩu không đúng'
-      : (err?.message || 'Đăng nhập thất bại');
+      ? 'Incorrect email or password'
+      : (err?.message || 'Sign in failed');
     setAuthMessage(msg, 'error');
   }finally{
     clearButtonLoading(btnDoLogin);
@@ -349,10 +447,10 @@ async function handleSignIn(){
 }
 btnDoLogin?.addEventListener('click', (e)=>{ e.preventDefault(); handleSignIn(); });
 async function handleRegister(){
-  if (!(await ensureSupabase())){ setAuthMessage('Không thể khởi tạo Supabase. Kiểm tra URL/Key.', 'error'); return; }
+  if (!(await ensureSupabase())){ setAuthMessage('Cannot initialize Supabase. Check URL/Key.', 'error'); return; }
   const email = String(authEmail?.value || '').trim();
   const password = String(authPassword?.value || '').trim();
-  if (!email || !password){ setAuthMessage('Vui lòng nhập email và mật khẩu', 'error'); return; }
+  if (!email || !password){ setAuthMessage('Please enter email and password', 'error'); return; }
   try{
     setButtonLoading(btnDoRegister, 'Creating...');
     const { data, error } = await supabaseClient.auth.signUp({ email, password });
@@ -390,8 +488,8 @@ async function handleRegister(){
     }
   }catch(err){
     const msg = /exist|already|duplicate|registered/i.test(err?.message || '')
-      ? 'Email đã tồn tại'
-      : (err?.message || 'Đăng ký thất bại');
+      ? 'Email already exists'
+      : (err?.message || 'Sign up failed');
     setAuthMessage(msg, 'error');
   }finally{
     clearButtonLoading(btnDoRegister);
@@ -466,6 +564,12 @@ async function afterCalculate(data, full_name, lang, dob){
     const { data: ins } = await supabaseClient.from('soulmaps').insert(insertPayload).select('id').single();
     currentSoulmapId = ins?.id || null;
     ctaRegister?.classList.add('hidden');
+    try{
+      const savedChats = window.__lastSavedChats || [];
+      if (chatMessages && savedChats.length){
+        savedChats.forEach(m => appendMessage(m.role === 'assistant' ? 'assistant' : 'user', m.content || ''));
+      }
+    }catch{}
   } else {
     ctaRegister?.classList.remove('hidden');
   }
@@ -826,8 +930,8 @@ form.addEventListener('submit', async (e)=>{
   }catch(err){
     console.error(err);
     const msg = /504|timeout|Gateway/i.test(err?.message || '')
-      ? 'Hệ thống quá tải hoặc kết nối chậm (504). Vui lòng thử lại sau.'
-      : 'Đã xảy ra lỗi. Vui lòng thử lại.';
+      ? 'System overload or slow connection (504). Please try again later.'
+      : 'An error occurred. Please try again.';
     alert(msg);
     hide(resultSec); show(introSec);
   }finally{
@@ -854,7 +958,7 @@ if (btnDownload && !window.__downloadBound) {
   window.__downloadBound = true;
   btnDownload.addEventListener('click', async ()=>{
     if (!window.soulmapImageUrl || !window.soulmapData){
-      alert('Chưa có ảnh để tải.'); return;
+      alert('No image available to download.'); return;
     }
     if (window.__downloading) return;
     window.__downloading = true;
@@ -947,7 +1051,7 @@ btnSaveCurrent?.addEventListener('click', async ()=>{
   });
   if (rows.length) await supabaseClient.from('chat_messages').insert(rows);
   ctaSaveCurrent?.classList.add('hidden');
-  showNotice('✅ SoulMap hiện tại đã được lưu.');
+  showNotice('✅ Current SoulMap has been saved.');
 });
 btnDismissSave?.addEventListener('click', ()=>{ ctaSaveCurrent?.classList.add('hidden'); });
 
@@ -1454,6 +1558,7 @@ const chatInput = document.getElementById('chat-input');
 const chatSend = document.getElementById('chat-send');
 const chatMessages = document.getElementById('chat-messages');
 const askCoachBtn = document.getElementById('ask-coach');
+const chatClear = document.getElementById('chat-clear');
 
 // Reset toàn bộ chat khi bắt đầu Calculate
 function resetChatForCalculation(){
@@ -1635,7 +1740,7 @@ function renderChatChips(chatPrompts) {
     const btn = document.createElement('button');
     btn.className = `topic-chip ${q.cat || ''}`.trim();
     btn.type = 'button';
-    const label = q.label || q.intent || 'Câu hỏi';
+    const label = q.label || q.intent || 'Question';
     const promptText = q.prompt || q.label || '';
     btn.innerHTML = `<span class="icon"></span>${label}`;
     btn.title = promptText;
@@ -1785,7 +1890,7 @@ async function sendChatMessage(text, isFirst = false, extraInputs = {}) {
 
   } catch (err) {
     console.error('sendChatMessage error', err);
-    appendMessage('assistant', `Đã xảy ra lỗi: ${err.message}`);
+    appendMessage('assistant', `An error occurred: ${err.message}`);
   } finally {
     chatSend && (chatSend.disabled = false);
     // Luôn xóa nội dung trường nhập sau khi gửi, dù gửi qua chip hay gõ tay
@@ -1812,35 +1917,11 @@ if (chatInput) {
 const chatVoice = document.getElementById('chat-voice');
 if (chatVoice) {
   chatVoice.addEventListener('click', () => {
-    appendMessage('assistant', '🎤 Tính năng giọng nói sẽ sớm ra mắt.');
+    appendMessage('assistant', '🎤 Voice feature coming soon.');
   });
 }
 
-btnMySoulmaps?.addEventListener('click', async ()=>{
-  if (!supabaseClient || !currentUser) return;
-  const { data } = await supabaseClient.from('soulmaps').select('id, life_path, created_at').order('created_at', { ascending: false });
-  if (soulmapsList) soulmapsList.innerHTML = '';
-  (data||[]).forEach(row => {
-    const b = document.createElement('button');
-    b.className = 'button';
-    b.textContent = `#${row.id} • LP ${row.life_path}`;
-    b.addEventListener('click', async ()=>{
-      const { data: one } = await supabaseClient.from('soulmaps').select('*').eq('id', row.id).single();
-      currentSoulmapId = one?.id || null;
-      const out = one?.output || {};
-      const name = out?.core?.full_name || inputName.value || '';
-      const lang = out?.meta?.lang || inputLang.value || 'en';
-      render({ ...normalize(out), fullName: name, lang });
-      const { data: chats } = await supabaseClient.from('chat_messages').select('role, content').eq('soulmap_id', row.id).order('created_at', { ascending: true });
-      if (chatMessages) chatMessages.innerHTML = '';
-      (chats||[]).forEach(m => appendMessage(m.role === 'assistant' ? 'assistant' : 'user', m.content || ''));
-      show(resultSec);
-      mySoulmapsSec?.classList.add('hidden');
-    });
-    soulmapsList?.appendChild(b);
-  });
-  mySoulmapsSec?.classList.remove('hidden');
-});
+ 
 
 function openChat() {
   if (chatBox) {
@@ -1870,6 +1951,20 @@ if (askCoachBtn) {
   askCoachBtn.addEventListener('click', (e) => {
     e.preventDefault();
     openChat();
+  });
+}
+
+if (chatClear) {
+  chatClear.addEventListener('click', async (e) => {
+    e.preventDefault();
+    try{
+      if (!supabaseClient || !currentUser) return;
+      await supabaseClient.from('chat_messages').delete().eq('user_id', currentUser.id);
+      if (chatMessages) chatMessages.innerHTML = '';
+      try { sessionStorage.removeItem('soul_convo'); } catch {}
+      try { localStorage.removeItem('soul_coach_convo'); } catch {}
+      showNotice('✅ Chat history cleared.');
+    }catch{}
   });
 }
 
@@ -1947,8 +2042,8 @@ form.addEventListener('submit', async (e)=>{
   }catch(err){
     console.error(err);
     const msg = /504|timeout|Gateway/i.test(err?.message || '')
-      ? 'Hệ thống quá tải hoặc kết nối chậm (504). Vui lòng thử lại sau.'
-      : 'Đã xảy ra lỗi. Vui lòng thử lại.';
+      ? 'System overload or slow connection (504). Please try again later.'
+      : 'An error occurred. Please try again.';
     alert(msg);
     hide(resultSec); show(introSec);
   }finally{
@@ -1975,7 +2070,7 @@ if (btnDownload && !window.__downloadBound) {
   window.__downloadBound = true;
   btnDownload.addEventListener('click', async ()=>{
     if (!window.soulmapImageUrl || !window.soulmapData){
-      alert('Chưa có ảnh để tải.'); return;
+      alert('No image available to download.'); return;
     }
     if (window.__downloading) return;
     window.__downloading = true;
