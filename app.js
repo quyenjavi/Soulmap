@@ -1,6 +1,11 @@
 // app.js
 /* ========== CONFIG ========== */
 const DIFY_API_URL = "/api/workflow";  // gọi qua proxy nội bộ, không lộ key
+let supabaseClient = null;
+let supaSession = null;
+let currentUser = null;
+let currentSoulmapId = null;
+let authMode = 'login';
 
 /* ========== DOM refs ========== */
 const el = (id) => document.getElementById(id);
@@ -40,6 +45,35 @@ const secShare = el('sec-share');
 const btnShare   = el('share');
 const btnDownload= el('download');
 const tryAgain   = el('try-again');
+const btnLogin   = el('btn-login');
+const userMenu   = el('user-menu');
+const btnLogout  = el('btn-logout');
+const btnEditProfile = el('btn-edit-profile');
+const btnMySoulmaps = el('btn-my-soulmaps');
+const authModal = el('auth-modal');
+const authEmail = el('auth-email');
+const authPassword = el('auth-password');
+const btnDoLogin = el('btn-do-login');
+const btnDoRegister = el('btn-do-register');
+const authClose = el('auth-close');
+const profileModal = el('profile-modal');
+const profileFullName = el('profile-full-name');
+const profileLang = el('profile-lang');
+const profileDob = el('profile-dob');
+const btnSaveProfile = el('btn-save-profile');
+const profileClose = el('profile-close');
+const ctaRegister = el('cta-register');
+const btnRegisterSave = el('btn-register-save');
+const ctaSaveCurrent = el('cta-save-current');
+const btnSaveCurrent = el('btn-save-current');
+const btnDismissSave = el('btn-dismiss-save');
+const mySoulmapsSec = el('my-soulmaps');
+const soulmapsList = el('soulmaps-list');
+const btnRegisterHeader = el('btn-register-header');
+const authTitle = el('auth-title');
+const linkToRegister = el('link-to-register');
+const linkToLogin = el('link-to-login');
+const authMsg = el('auth-msg');
 
 // Name + Caption under hero
 const displayName = el('display-name');
@@ -179,6 +213,250 @@ function setBusy(b){
   else  { hide(loadingSec); }
   if (b) startLoadingQuotes(); else stopLoadingQuotes();
 }
+function openModal(m){ m && m.classList.remove('hidden'); }
+function closeModal(m){ m && m.classList.add('hidden'); }
+function initSupabase(){
+  const url = window.SUPABASE_URL || '';
+  const key = window.SUPABASE_ANON_KEY || '';
+  if (window.supabase && url && key){
+    supabaseClient = window.supabase.createClient(url, key);
+  }
+}
+function setAuthMode(mode){
+  authMode = mode;
+  if (authTitle) authTitle.textContent = mode === 'register' ? 'Register' : 'Login';
+  btnDoLogin?.classList.toggle('hidden', mode !== 'login');
+  btnDoRegister?.classList.toggle('hidden', mode !== 'register');
+  linkToRegister?.classList.toggle('hidden', mode !== 'login');
+  linkToLogin?.classList.toggle('hidden', mode !== 'register');
+  if (authMsg) { authMsg.textContent = ''; authMsg.style.color = '#ffb3b3'; }
+}
+function setButtonLoading(btn, loadingText){
+  if (!btn) return;
+  if (!btn.dataset.origText) btn.dataset.origText = btn.textContent || '';
+  btn.disabled = true;
+  btn.textContent = loadingText || 'Loading...';
+}
+function clearButtonLoading(btn){
+  if (!btn) return;
+  btn.disabled = false;
+  if (btn.dataset.origText) btn.textContent = btn.dataset.origText;
+}
+function setAuthMessage(text, type){
+  if (!authMsg) return;
+  authMsg.textContent = text || '';
+  authMsg.style.color = type === 'success' ? '#7EE787' : '#ffb3b3';
+}
+async function updateAuthUI(session){
+  supaSession = session || null;
+  currentUser = session?.user || null;
+  if (currentUser){
+    btnLogin?.classList.add('hidden');
+    userMenu?.classList.remove('hidden');
+    ctaRegister?.classList.add('hidden');
+    btnRegisterHeader?.classList.add('hidden');
+    const emailSpan = document.getElementById('user-email');
+    if (emailSpan) emailSpan.textContent = currentUser.email || '';
+    await loadProfilePrefill();
+    if (lastState && !currentSoulmapId){
+      ctaSaveCurrent?.classList.remove('hidden');
+    }
+  } else {
+    btnLogin?.classList.remove('hidden');
+    userMenu?.classList.add('hidden');
+    ctaSaveCurrent?.classList.add('hidden');
+    btnRegisterHeader?.classList.remove('hidden');
+    ctaRegister?.classList.add('hidden');
+    currentSoulmapId = null;
+    if (inputName) inputName.value = '';
+    if (inputLang) { inputLang.value = 'vi'; setLang('vi'); }
+    if (selYear) selYear.value = '';
+    if (selMonth) selMonth.value = '';
+    if (selDay) selDay.value = '';
+    if (chatMessages) chatMessages.innerHTML = '';
+    if (chatBox) { chatBox.classList.add('hidden'); chatBox.style.display = ''; }
+    hide(resultSec);
+    show(form);
+    show(introSec);
+  }
+}
+async function initAuth(){
+  initSupabase();
+  if (!supabaseClient) return;
+  const { data } = await supabaseClient.auth.getSession();
+  await updateAuthUI(data?.session || null);
+  supabaseClient.auth.onAuthStateChange(async (_event, session) => {
+    await updateAuthUI(session || null);
+  });
+}
+function openAuth(){ openModal(authModal); }
+function closeAuth(){ closeModal(authModal); }
+function openProfile(){ openModal(profileModal); }
+function closeProfile(){ closeModal(profileModal); }
+btnLogin?.addEventListener('click', ()=>{ setAuthMode('login'); openAuth(); });
+btnRegisterHeader?.addEventListener('click', ()=>{ setAuthMode('register'); openAuth(); });
+authClose?.addEventListener('click', closeAuth);
+btnEditProfile?.addEventListener('click', openProfile);
+profileClose?.addEventListener('click', closeProfile);
+btnRegisterSave?.addEventListener('click', ()=>{ setAuthMode('register'); openAuth(); });
+linkToRegister?.addEventListener('click', (e)=>{ e.preventDefault(); setAuthMode('register'); });
+linkToLogin?.addEventListener('click', (e)=>{ e.preventDefault(); setAuthMode('login'); });
+btnLogout?.addEventListener('click', async ()=>{
+  if (!supabaseClient) return;
+  await supabaseClient.auth.signOut();
+  currentSoulmapId = null;
+});
+async function handleSignIn(){
+  if (!supabaseClient){ setAuthMessage('Không thể khởi tạo Supabase. Kiểm tra URL/Key.', 'error'); return; }
+  const email = String(authEmail?.value || '').trim();
+  const password = String(authPassword?.value || '').trim();
+  if (!email || !password){ setAuthMessage('Vui lòng nhập email và mật khẩu', 'error'); return; }
+  try{
+    setButtonLoading(btnDoLogin, 'Signing in...');
+    const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+    setAuthMessage('Đăng nhập thành công', 'success');
+    closeAuth();
+    showNotice('✅ Signed in');
+  }catch(err){
+    const msg = /invalid|credentials/i.test(err?.message || '')
+      ? 'Email hoặc mật khẩu không đúng'
+      : (err?.message || 'Đăng nhập thất bại');
+    setAuthMessage(msg, 'error');
+  }finally{
+    clearButtonLoading(btnDoLogin);
+  }
+}
+btnDoLogin?.addEventListener('click', (e)=>{ e.preventDefault(); handleSignIn(); });
+async function handleRegister(){
+  if (!supabaseClient){ setAuthMessage('Không thể khởi tạo Supabase. Kiểm tra URL/Key.', 'error'); return; }
+  const email = String(authEmail?.value || '').trim();
+  const password = String(authPassword?.value || '').trim();
+  if (!email || !password){ setAuthMessage('Vui lòng nhập email và mật khẩu', 'error'); return; }
+  try{
+    setButtonLoading(btnDoRegister, 'Creating...');
+    const { data, error } = await supabaseClient.auth.signUp({ email, password });
+    if (error) throw error;
+    const user = data?.user;
+    if (user){
+      const payload = {
+        id: user.id,
+        full_name: inputName?.value?.trim() || null,
+        lang: (inputLang?.value || currentLang || 'vi'),
+        date_of_birth: (selYear?.value && selMonth?.value && selDay?.value) ? `${selYear.value}-${selMonth.value}-${selDay.value}` : null
+      };
+      await supabaseClient.from('profiles').insert(payload);
+      if (window.soulmapData && lastState){
+        const insertPayload = {
+          user_id: user.id,
+          life_path: Number(lastState?.core?.life_path || 0),
+          output: window.soulmapData || {},
+          card_image_url: window.soulmapImageUrl || ''
+        };
+        const { data: ins } = await supabaseClient.from('soulmaps').insert(insertPayload).select('id').single();
+        currentSoulmapId = ins?.id || null;
+        const items = chatMessages?.querySelectorAll('.chat-msg');
+        const rows = [];
+        items?.forEach(item => {
+          const role = item.classList.contains('assistant') ? 'assistant' : 'user';
+          const text = item.querySelector('.bubble')?.textContent || '';
+          rows.push({ user_id: user.id, soulmap_id: currentSoulmapId, role, content: text });
+        });
+        if (rows.length) await supabaseClient.from('chat_messages').insert(rows);
+      }
+      setAuthMessage('✅ Account created. Your SoulMap is saved.', 'success');
+      closeAuth();
+      showNotice('✅ Account created. Your SoulMap is saved.');
+    }
+  }catch(err){
+    const msg = /exist|already|duplicate|registered/i.test(err?.message || '')
+      ? 'Email đã tồn tại'
+      : (err?.message || 'Đăng ký thất bại');
+    setAuthMessage(msg, 'error');
+  }finally{
+    clearButtonLoading(btnDoRegister);
+  }
+}
+btnDoRegister?.addEventListener('click', (e)=>{ e.preventDefault(); handleRegister(); });
+document.addEventListener('click', (e)=>{
+  const t = e.target;
+  if (!t) return;
+  if (t.id === 'btn-do-login'){ e.preventDefault(); handleSignIn(); }
+  if (t.id === 'btn-do-register'){ e.preventDefault(); handleRegister(); }
+});
+btnSaveProfile?.addEventListener('click', async ()=>{
+  if (!supabaseClient || !currentUser) return;
+  const payload = {
+    full_name: String(profileFullName?.value || '').trim(),
+    lang: String(profileLang?.value || '').trim(),
+    date_of_birth: String(profileDob?.value || '').trim() || null
+  };
+  await supabaseClient.from('profiles').update(payload).eq('id', currentUser.id);
+  if (payload.full_name) inputName.value = payload.full_name;
+  if (payload.lang) { inputLang.value = payload.lang; setLang(payload.lang); }
+  if (payload.date_of_birth){
+    const [y,m,d] = payload.date_of_birth.split('-');
+    selYear.value = y; selMonth.value = m; selDay.value = d;
+  }
+  closeProfile();
+});
+async function loadProfilePrefill(){
+  if (!supabaseClient || !currentUser) return;
+  const { data } = await supabaseClient.from('profiles').select('full_name, lang, date_of_birth').eq('id', currentUser.id).maybeSingle();
+  if (!data){
+    const def = {
+      id: currentUser.id,
+      full_name: inputName?.value?.trim() || 'User',
+      lang: (inputLang?.value || currentLang || 'vi'),
+      date_of_birth: null
+    };
+    await supabaseClient.from('profiles').insert(def);
+    return;
+  }
+  if (data.full_name) inputName.value = data.full_name;
+  if (data.lang) { inputLang.value = data.lang; setLang(data.lang); }
+  if (data.date_of_birth){
+    const dob = String(data.date_of_birth);
+    const [y,m,d] = dob.split('-');
+    selYear.value = y; selMonth.value = m; selDay.value = d;
+  }
+}
+function showNotice(text){
+  const n = document.createElement('div');
+  n.textContent = text;
+  n.style.position='fixed';
+  n.style.bottom='16px';
+  n.style.right='16px';
+  n.style.background='rgba(0,0,0,0.7)';
+  n.style.color='#fff';
+  n.style.padding='10px 12px';
+  n.style.borderRadius='10px';
+  n.style.zIndex='9999';
+  document.body.appendChild(n);
+  setTimeout(()=>{ n.remove(); }, 3000);
+}
+async function afterCalculate(data, full_name, lang, dob){
+  if (currentUser && supabaseClient){
+    const insertPayload = {
+      user_id: currentUser.id,
+      life_path: Number(data?.core?.life_path || 0),
+      output: window.soulmapData || {},
+      card_image_url: window.soulmapImageUrl || ''
+    };
+    const { data: ins } = await supabaseClient.from('soulmaps').insert(insertPayload).select('id').single();
+    currentSoulmapId = ins?.id || null;
+    ctaRegister?.classList.add('hidden');
+  } else {
+    ctaRegister?.classList.remove('hidden');
+  }
+}
+async function saveChatPair(userText, assistantText){
+  if (currentUser && currentSoulmapId && supabaseClient){
+    const u = { user_id: currentUser.id, soulmap_id: currentSoulmapId, role: 'user', content: userText };
+    const a = { user_id: currentUser.id, soulmap_id: currentSoulmapId, role: 'assistant', content: assistantText };
+    await supabaseClient.from('chat_messages').insert([u,a]);
+  }
+}
 
 function li(text){
   const li=document.createElement('li'); li.textContent=text; return li;
@@ -240,7 +518,7 @@ function normalize(result) {
     const interpretation = outputs.interpretation || mediaSpec.interpretation || result.interpretation || {};
     const imageUrl = outputs.image_url || mediaSpec.image_url || result.image_url || '';
     const share = outputs.share || mediaSpec.share || result.share || {};
-    const personalYearObj = outputs.personal_year || mediaSpec.personal_year || result.personal_year || {};
+    const personalYearObj = outputs.personal_year || mediaSpec.personal_year || result.personal_year || (core?.personal_year != null ? { value: core.personal_year } : {});
     const personalYearAdvice = outputs.personal_year_advice
       || mediaSpec.personal_year_advice
       || result.personal_year_advice
@@ -253,7 +531,12 @@ function normalize(result) {
     const coreDetails = outputs.core_details || mediaSpec.core_details || result.core_details || {};
     const chatPrompts = outputs.chat_prompts || mediaSpec.chat_prompts || result.chat_prompts || null;
 
-    return { core, interpretation, imageUrl, share, personalYear, personalYearAdvice, core_details: coreDetails, chatPrompts };
+    const lp = Number(core?.life_path);
+    const localLp = [11, 22, 33].includes(lp) ? lp : (lp >= 1 && lp <= 9 ? lp : null);
+    const localImageUrl = localLp ? `image/template/lp${localLp}.png` : '';
+    const finalImageUrl = localImageUrl || imageUrl;
+
+    return { core, interpretation, imageUrl: finalImageUrl, share, personalYear, personalYearAdvice, core_details: coreDetails, chatPrompts };
   } catch (e) {
     console.error('normalize error', e);
     return result;
@@ -381,20 +664,32 @@ setTimeout(tryPlayOpen, 300);
 document.addEventListener('pointerdown', tryPlayOpen, { once: true });
 
 function render({ core, interpretation, imageUrl, share, personalYear, personalYearAdvice, fullName, core_details, lang, chatPrompts }){
-  // ảnh
-  if (imageUrl){ imgHero.src = imageUrl; }
+  const lifePath = Number(core?.life_path);
+  const captionClean = stripNameFromCaption(share?.caption || '', fullName || '');
+  const bodyText = (share?.share_text || '').trim();
+  const useLang = normalizeLang(lang || core?.lang || 'en');
+  renderSoulMapCard({ lifePath, captionLine: captionClean, bodyText, lang: useLang }).then(({ canvas, dataUrl }) => {
+    imgHero.src = dataUrl;
+    window.__soulmapCanvas = canvas;
+    window.soulmapRenderedDataURL = dataUrl;
+    window.soulmapLifePath = lifePath;
+    window.soulmapImageUrl = dataUrl;
+  }).catch(() => {
+    if (imageUrl) { imgHero.src = imageUrl; window.soulmapImageUrl = imageUrl; }
+  });
  
   // render chips từ core_details
   renderCoreChips(core, core_details, lang || core?.lang || 'en', personalYear, personalYearAdvice);
 
   // name + caption under hero
-  const captionClean = stripNameFromCaption(share?.caption || '', fullName || '');
+  const captionClean2 = stripNameFromCaption(share?.caption || '', fullName || '');
+  const combinedShareText = [captionClean2, (share?.share_text || '').trim()].filter(Boolean).join('\n');
   if (displayName) displayName.textContent = fullName || '';
-  if (displayCaption) displayCaption.textContent = captionClean;
+  if (displayCaption) displayCaption.textContent = combinedShareText;
 
   // blocks
   if (secShare) secShare.textContent = fullName || 'Share';
-  txtCaption.textContent   = captionClean;
+  txtCaption.textContent   = captionClean2;
   txtShareText.textContent = share?.share_text || '';
   txtCore.textContent    = interpretation?.your_core_meaning || '';
   txtMission.textContent = interpretation?.life_mission || '';
@@ -409,8 +704,7 @@ function render({ core, interpretation, imageUrl, share, personalYear, personalY
   listChal.innerHTML = '';
   (interpretation?.challenges || []).forEach(c => listChal.appendChild(li(c)));
 
-  // cập nhật state dùng cho export (compose khi Share/Download)
-  window.soulmapImageUrl = imageUrl || imgHero.src || '';
+  window.soulmapImageUrl = window.soulmapRenderedDataURL || imageUrl || imgHero.src || '';
   window.soulmapData = {
     core: { ...(core||{}), full_name: fullName || (core?.full_name || '') },
     interpretation: { ...(interpretation||{}), personal_year_advice: (personalYearAdvice || interpretation?.personal_year_advice || '') },
@@ -503,6 +797,7 @@ form.addEventListener('submit', async (e)=>{
 
     lastState = { ...data, fullName: full_name, lang, dob };
     render({ ...data, fullName: full_name, lang });
+    await afterCalculate(data, full_name, lang, dob);
     try {
       const r = await fetch('/api/visit', { method: 'POST' });
       const j = await r.json();
@@ -523,12 +818,13 @@ form.addEventListener('submit', async (e)=>{
 });
 
 /* ========== Try again ========== */
-tryAgain.addEventListener('click', (e)=>{
+tryAgain.addEventListener('click', async (e)=>{
   e.preventDefault();
   hide(resultSec);
+  hide(loadingSec);
+  show(form);
   show(introSec);
-  show(form); // hiện lại phần input khi bấm Retry
-  window.scrollTo({top:0, behavior:'smooth'});
+  if (currentUser) { await loadProfilePrefill(); }
 });
 
 /* ========== Share & Download (tối thiểu) ========== */
@@ -547,6 +843,15 @@ if (btnDownload && !window.__downloadBound) {
     } finally {
       window.__downloading = false;
     }
+  });
+}
+
+if (btnShare && !window.__shareBound) {
+  window.__shareBound = true;
+  btnShare.addEventListener('click', async ()=>{
+    try {
+      await handleExport('share');
+    } catch(e){}
   });
 }
 
@@ -602,6 +907,29 @@ try{
 }catch(e){
   showVisitCount(getVisitCount());
 }
+document.addEventListener('DOMContentLoaded', ()=>{ initAuth(); });
+btnSaveCurrent?.addEventListener('click', async ()=>{
+  if (!supabaseClient || !currentUser || !lastState) return;
+  const insertPayload = {
+    user_id: currentUser.id,
+    life_path: Number(lastState?.core?.life_path || 0),
+    output: window.soulmapData || {},
+    card_image_url: window.soulmapImageUrl || ''
+  };
+  const { data: ins } = await supabaseClient.from('soulmaps').insert(insertPayload).select('id').single();
+  currentSoulmapId = ins?.id || null;
+  const items = chatMessages?.querySelectorAll('.chat-msg');
+  const rows = [];
+  items?.forEach(item => {
+    const role = item.classList.contains('assistant') ? 'assistant' : 'user';
+    const text = item.querySelector('.bubble')?.textContent || '';
+    rows.push({ user_id: currentUser.id, soulmap_id: currentSoulmapId, role, content: text });
+  });
+  if (rows.length) await supabaseClient.from('chat_messages').insert(rows);
+  ctaSaveCurrent?.classList.add('hidden');
+  showNotice('✅ SoulMap hiện tại đã được lưu.');
+});
+btnDismissSave?.addEventListener('click', ()=>{ ctaSaveCurrent?.classList.add('hidden'); });
 
 // Global state for export
 window.soulmapData = null;
@@ -641,6 +969,170 @@ async function loadImage(url){
       return img;
     }catch(e){ throw e; }
   }
+}
+
+async function resolveTemplate(lifePath){
+  const primary = `image/template/lp${lifePath}.png`;
+  try { await loadImage(primary); return primary; } catch {}
+  if (lifePath === 11) {
+    const fb = 'image/template/lp2.png';
+    try { await loadImage(fb); return fb; } catch {}
+  }
+  if (lifePath === 22) {
+    const fb = 'image/template/lp4.png';
+    try { await loadImage(fb); return fb; } catch {}
+  }
+  if (lifePath === 33) {
+    const fb = 'image/template/lp6.png';
+    try { await loadImage(fb); return fb; } catch {}
+  }
+  const def = 'image/template/lp1.png';
+  try { await loadImage(def); return def; } catch { return primary; }
+}
+
+function pickFontFamilyByLang(lang){
+  const l = normalizeLang(lang || 'en');
+  if (l === 'vi' || l === 'cn' || l === 'zh') {
+    return "Inter, 'Noto Sans', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+  }
+  return "Inter, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+}
+
+function breakLines(ctx, text, maxWidth, maxLines, lang){
+  const units = segmentUnits(text || '', lang || 'en');
+  const lines = [];
+  let line = '';
+  for (let i = 0; i < units.length; i++){
+    const test = line + units[i];
+    if (ctx.measureText(test).width > maxWidth && line){
+      lines.push(line.trim());
+      line = units[i];
+      if (lines.length >= maxLines) break;
+    } else {
+      line = test;
+    }
+  }
+  if (lines.length < maxLines && line) lines.push(line.trim());
+  return lines.slice(0, maxLines);
+}
+
+function ellipsisToFit(ctx, text, maxWidth){
+  let t = String(text || '');
+  if (ctx.measureText(t).width <= maxWidth) return t;
+  while (t.length > 0 && ctx.measureText(t + '…').width > maxWidth){
+    t = t.slice(0, -1);
+  }
+  return t + '…';
+}
+
+async function renderSoulMapCard({ lifePath, captionLine, bodyText, lang }){
+  const tpl = await resolveTemplate(Number(lifePath));
+  const bg = await loadImage(tpl);
+  const W = bg.width;
+  const H = bg.height;
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(bg, 0, 0, W, H);
+  const boxX = W * 0.12;
+  const boxW = W * 0.76;
+  const boxH = H * 0.22;
+  const boxY = H * 0.73;
+  const padX = W * 0.03;
+  const padY = H * 0.02;
+  const xLeft = boxX + padX;
+  const xRight = boxX + boxW - padX;
+  const maxWidth = xRight - xLeft;
+  const fam = pickFontFamilyByLang(lang);
+  let fontSize = 15;
+  const minSize = 10;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = 'rgba(20,20,20,0.90)';
+  ctx.shadowColor = 'rgba(0,0,0,0.12)';
+  ctx.shadowBlur = 1;
+  ctx.shadowOffsetY = 1;
+  const cap = String(captionLine || '').trim();
+  const body = String(bodyText || '').trim();
+  const bodyLines = body ? body.split(/\n+/) : [];
+  let rawLines = [];
+  if (cap) rawLines.push(cap);
+  rawLines.push(...bodyLines);
+  // Hiển thị toàn bộ nội dung: không giới hạn số dòng
+  let lines;
+  while (true){
+    ctx.font = `${fontSize}px ${fam}`;
+    const lh = Math.round(fontSize * 1.25);
+    const wrapped = [];
+    for (let i = 0; i < rawLines.length; i++){
+      const parts = breakLines(ctx, rawLines[i], maxWidth, 9999 - wrapped.length, lang);
+      wrapped.push(...parts);
+      // no cap on lines
+    }
+    lines = wrapped;
+    const totalH = lines.length * lh;
+    if (totalH <= (boxH - padY * 2)) break;
+    if (fontSize <= minSize) break;
+    fontSize -= 1;
+  }
+  ctx.font = `${fontSize}px ${fam}`;
+  const lh = Math.round(fontSize * 1.25);
+  const maxY = boxY + boxH - padY;
+  let y = boxY + padY + lh;
+  for (let i = 0; i < lines.length; i++){
+    const t = lines[i];
+    ctx.fillText(t, xLeft, y);
+    y += lh;
+    if (y > maxY) break;
+  }
+  const dataUrl = canvas.toDataURL('image/png');
+  return { canvas, dataUrl, templateUrl: tpl };
+}
+
+async function addQrToCanvas(baseCanvas){
+  const W = baseCanvas.width;
+  const H = baseCanvas.height;
+  const out = document.createElement('canvas');
+  out.width = W; out.height = H;
+  const ctx = out.getContext('2d');
+  ctx.drawImage(baseCanvas, 0, 0);
+  try {
+    const tag = 'Scan to explore SoulMap';
+    const size = Math.round(W * 0.028);
+    const boxX = W * 0.12;
+    const boxW = W * 0.76;
+    const boxH = H * 0.22;
+    const boxY = H * 0.73;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.font = `500 ${size}px ${pickFontFamilyByLang(normalizeLang(window.soulmapData?.meta?.lang || window.soulmapData?.core?.lang || 'en'))}`;
+    ctx.fillStyle = 'rgba(212,175,55,0.95)';
+    ctx.shadowColor = 'rgba(0,0,0,0.18)';
+    ctx.shadowBlur = 2;
+    ctx.shadowOffsetY = 1;
+    const qr = await loadImage('image/QRcode.png');
+    const qrSize = Math.round(W * 0.11);
+    const qrX = Math.round((W - qrSize) / 2);
+    const qrY = Math.round(boxY - qrSize - H * 0.02);
+    const tagY = Math.max(0, qrY - Math.round(size * 1.2));
+    ctx.fillText(tag, W / 2, tagY);
+    ctx.drawImage(qr, qrX, qrY, qrSize, qrSize);
+  } catch {}
+  return out;
+}
+
+async function renderPreviewCard(output){
+  const lifePath = Number(output?.core?.life_path);
+  const captionLine = stripNameFromCaption(output?.share?.caption || '', output?.core?.full_name || '');
+  const bodyText = (output?.share?.share_text || '').trim();
+  const lang = normalizeLang(output?.meta?.lang || output?.core?.lang || 'en');
+  return renderSoulMapCard({ lifePath, captionLine, bodyText, lang });
+}
+
+async function renderDownloadCard(output){
+  const base = await renderPreviewCard(output);
+  const out = await addQrToCanvas(base.canvas);
+  return out;
 }
 
 function wrapText(ctx, text, x, y, maxWidth, lineHeight){
@@ -918,19 +1410,17 @@ async function composeSoulMapImage({
 
 async function handleExport(action = 'download'){
   try{
-    const canvas = await composeSoulMapImage({
-      imageUrl: window.soulmapImageUrl,
-      data: window.soulmapData,
-      mode: 'story'
-    });
+    const output = window.soulmapData || lastState || {};
+    const canvas = await renderDownloadCard(output);
     const blob = await new Promise(res => canvas.toBlob(res, 'image/png', 0.95));
-    const file = new File([blob], 'SoulMap.png', { type: 'image/png' });
+    const lp = window.soulmapLifePath || '';
+    const file = new File([blob], `SoulMap_lp${lp}.png`, { type: 'image/png' });
     if (action === 'share' && navigator.canShare && navigator.canShare({ files: [file] })){
       await navigator.share({ files: [file], title: 'Soul Map', text: window.soulmapData?.share?.caption || 'Soul Map' });
     } else {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url; a.download = 'SoulMap.png';
+      a.href = url; a.download = `SoulMap_lp${lp}.png`;
       document.body.appendChild(a); a.click(); a.remove();
       URL.revokeObjectURL(url);
     }
@@ -1265,6 +1755,7 @@ async function sendChatMessage(text, isFirst = false, extraInputs = {}) {
     }
 
     appendMessage('assistant', meta.answer || '...', { next_action_id: meta.nextActionId || undefined });
+    await saveChatPair(raw, meta.answer || '');
 
     renderQuickReplies(meta.quickReplies);
 
@@ -1304,6 +1795,32 @@ if (chatVoice) {
     appendMessage('assistant', '🎤 Tính năng giọng nói sẽ sớm ra mắt.');
   });
 }
+
+btnMySoulmaps?.addEventListener('click', async ()=>{
+  if (!supabaseClient || !currentUser) return;
+  const { data } = await supabaseClient.from('soulmaps').select('id, life_path, created_at').order('created_at', { ascending: false });
+  if (soulmapsList) soulmapsList.innerHTML = '';
+  (data||[]).forEach(row => {
+    const b = document.createElement('button');
+    b.className = 'button';
+    b.textContent = `#${row.id} • LP ${row.life_path}`;
+    b.addEventListener('click', async ()=>{
+      const { data: one } = await supabaseClient.from('soulmaps').select('*').eq('id', row.id).single();
+      currentSoulmapId = one?.id || null;
+      const out = one?.output || {};
+      const name = out?.core?.full_name || inputName.value || '';
+      const lang = out?.meta?.lang || inputLang.value || 'en';
+      render({ ...normalize(out), fullName: name, lang });
+      const { data: chats } = await supabaseClient.from('chat_messages').select('role, content').eq('soulmap_id', row.id).order('created_at', { ascending: true });
+      if (chatMessages) chatMessages.innerHTML = '';
+      (chats||[]).forEach(m => appendMessage(m.role === 'assistant' ? 'assistant' : 'user', m.content || ''));
+      show(resultSec);
+      mySoulmapsSec?.classList.add('hidden');
+    });
+    soulmapsList?.appendChild(b);
+  });
+  mySoulmapsSec?.classList.remove('hidden');
+});
 
 function openChat() {
   if (chatBox) {
@@ -1422,10 +1939,13 @@ form.addEventListener('submit', async (e)=>{
 });
 
 /* ========== Try again ========== */
-tryAgain.addEventListener('click', (e)=>{
+tryAgain.addEventListener('click', async (e)=>{
   e.preventDefault();
-  hide(resultSec); show(introSec);
-  window.scrollTo({top:0, behavior:'smooth'});
+  hide(resultSec);
+  hide(loadingSec);
+  show(form);
+  show(introSec);
+  if (currentUser) { await loadProfilePrefill(); }
 });
 
 /* ========== Share & Download (tối thiểu) ========== */
@@ -1815,21 +2335,29 @@ async function composeSoulMapImage({
 
 async function handleExport(action = 'download'){
   try{
-    const canvas = await composeSoulMapImage({
-      imageUrl: window.soulmapImageUrl,
-      data: window.soulmapData,
-      mode: 'story'
-    });
+    const output = window.soulmapData || lastState || {};
+    const canvas = await renderDownloadCard(output);
     const blob = await new Promise(res => canvas.toBlob(res, 'image/png', 0.95));
-    const file = new File([blob], 'SoulMap.png', { type: 'image/png' });
+    const lp = window.soulmapLifePath || '';
+    const file = new File([blob], `SoulMap_lp${lp}.png`, { type: 'image/png' });
     if (action === 'share' && navigator.canShare && navigator.canShare({ files: [file] })){
       await navigator.share({ files: [file], title: 'Soul Map', text: window.soulmapData?.share?.caption || 'Soul Map' });
     } else {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url; a.download = 'SoulMap.png';
+      a.href = url; a.download = `SoulMap_lp${lp}.png`;
       document.body.appendChild(a); a.click(); a.remove();
       URL.revokeObjectURL(url);
     }
   }catch(e){ console.error(e); alert('Could not export image. Please try again.'); }
+}
+async function clearAppCache(){
+  try{ localStorage.clear(); }catch{}
+  try{ sessionStorage.clear(); }catch{}
+  try{
+    if (window.caches && typeof caches.keys === 'function'){
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+    }
+  }catch{}
 }

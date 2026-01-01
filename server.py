@@ -1,11 +1,14 @@
 from flask import Flask, request, jsonify, send_from_directory, Response
 import os
+from dotenv import load_dotenv
 import json
 import urllib.request
 import urllib.error
 import time
 import socket
 
+load_dotenv()
+load_dotenv('.env.local')
 app = Flask(__name__, static_folder='.', static_url_path='')
 
 
@@ -20,6 +23,15 @@ def add_cors_headers(resp):
 @app.route('/')
 def index():
     return send_from_directory('.', 'index.html')
+
+@app.route('/env.js')
+def env_js():
+    def esc(v):
+        return (v or '').replace('\\', '\\\\').replace("'", "\\'")
+    url = esc(os.environ.get('NEXT_PUBLIC_SUPABASE_URL', ''))
+    key = esc(os.environ.get('NEXT_PUBLIC_SUPABASE_ANON_KEY', ''))
+    body = f"window.SUPABASE_URL='{url}';window.SUPABASE_ANON_KEY='{key}';"
+    return Response(body, status=200, content_type='application/javascript')
 
 # Serve favicon.ico using existing JPEG in image directory
 @app.route('/favicon.ico')
@@ -233,6 +245,12 @@ def api_chat():
         try:
             resp_body = e.read()
             content_type = e.headers.get('Content-Type', 'application/json')
+            try:
+                body_text = resp_body.decode('utf-8', errors='ignore')
+            except Exception:
+                body_text = ''
+            if e.code == 400 and ('not_chat_app' in body_text or 'Please check if your app mode' in body_text):
+                return jsonify({'answer': 'Chat app chưa được cấu hình cho khóa hiện tại.'}), 200
             return Response(resp_body, status=e.code, content_type=content_type)
         except Exception:
             return jsonify({'error': f'HTTP {e.code}'}), e.code
