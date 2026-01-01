@@ -208,7 +208,22 @@
     </section>
   </div>
   <script src="/env.js" defer></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js" defer></script>
+  <script>
+    (function(){
+      function load(url, next){
+        var s=document.createElement('script');
+        s.src=url; s.defer=true; if (next) s.onerror=function(){ next(); };
+        document.head.appendChild(s);
+      }
+      if (!window.supabase){
+        load('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js', function(){
+          if (!window.supabase){
+            load('https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.js');
+          }
+        });
+      }
+    })();
+  </script>
   <script src="app.js" defer></script>
 
   <div id="auth-modal" class="modal hidden">

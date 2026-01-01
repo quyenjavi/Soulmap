@@ -222,6 +222,26 @@ function initSupabase(){
     supabaseClient = window.supabase.createClient(url, key);
   }
 }
+async function waitForSupabaseReady(timeoutMs=8000){
+  const start=Date.now();
+  while(Date.now()-start<timeoutMs){
+    const url=window.SUPABASE_URL||'';
+    const key=window.SUPABASE_ANON_KEY||'';
+    if(window.supabase&&url&&key) return true;
+    await new Promise(r=>setTimeout(r,200));
+  }
+  return false;
+}
+async function ensureSupabase(){
+  if(!supabaseClient){
+    initSupabase();
+    if(!supabaseClient){
+      await waitForSupabaseReady(8000);
+      initSupabase();
+    }
+  }
+  return !!supabaseClient;
+}
 function setAuthMode(mode){
   authMode = mode;
   if (authTitle) authTitle.textContent = mode === 'register' ? 'Register' : 'Login';
@@ -307,7 +327,7 @@ btnLogout?.addEventListener('click', async ()=>{
   currentSoulmapId = null;
 });
 async function handleSignIn(){
-  if (!supabaseClient){ setAuthMessage('Không thể khởi tạo Supabase. Kiểm tra URL/Key.', 'error'); return; }
+  if (!(await ensureSupabase())){ setAuthMessage('Không thể khởi tạo Supabase. Kiểm tra URL/Key.', 'error'); return; }
   const email = String(authEmail?.value || '').trim();
   const password = String(authPassword?.value || '').trim();
   if (!email || !password){ setAuthMessage('Vui lòng nhập email và mật khẩu', 'error'); return; }
@@ -329,7 +349,7 @@ async function handleSignIn(){
 }
 btnDoLogin?.addEventListener('click', (e)=>{ e.preventDefault(); handleSignIn(); });
 async function handleRegister(){
-  if (!supabaseClient){ setAuthMessage('Không thể khởi tạo Supabase. Kiểm tra URL/Key.', 'error'); return; }
+  if (!(await ensureSupabase())){ setAuthMessage('Không thể khởi tạo Supabase. Kiểm tra URL/Key.', 'error'); return; }
   const email = String(authEmail?.value || '').trim();
   const password = String(authPassword?.value || '').trim();
   if (!email || !password){ setAuthMessage('Vui lòng nhập email và mật khẩu', 'error'); return; }
@@ -907,7 +927,7 @@ try{
 }catch(e){
   showVisitCount(getVisitCount());
 }
-document.addEventListener('DOMContentLoaded', ()=>{ initAuth(); });
+document.addEventListener('DOMContentLoaded', async ()=>{ await waitForSupabaseReady(); initAuth(); });
 btnSaveCurrent?.addEventListener('click', async ()=>{
   if (!supabaseClient || !currentUser || !lastState) return;
   const insertPayload = {
