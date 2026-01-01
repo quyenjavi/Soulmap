@@ -33,6 +33,23 @@ def env_js():
     body = f"window.SUPABASE_URL='{url}';window.SUPABASE_ANON_KEY='{key}';"
     return Response(body, status=200, content_type='application/javascript')
 
+@app.route('/supabase.js')
+def supabase_js_proxy():
+    cdns = [
+        'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js',
+        'https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.js',
+    ]
+    for url in cdns:
+        try:
+            req = urllib.request.Request(url, method='GET')
+            with urlopen_with_retry(req, timeout=30, retries=1) as r:
+                body = r.read()
+                content_type = r.headers.get('Content-Type', 'application/javascript')
+            return Response(body, status=200, content_type=content_type)
+        except Exception:
+            continue
+    return Response('// failed to load supabase.js', status=502, content_type='application/javascript')
+
 # Serve favicon.ico using existing JPEG in image directory
 @app.route('/favicon.ico')
 def favicon():

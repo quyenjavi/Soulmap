@@ -216,9 +216,13 @@
         document.head.appendChild(s);
       }
       if (!window.supabase){
-        load('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js', function(){
+        load('/supabase.js', function(){
           if (!window.supabase){
-            load('https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.js');
+            load('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js', function(){
+              if (!window.supabase){
+                load('https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.js');
+              }
+            });
           }
         });
       }
