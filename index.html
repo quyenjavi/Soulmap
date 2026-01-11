@@ -18,7 +18,6 @@
       </div>
       <div class="auth-controls">
         <button id="btn-login" class="button">Login</button>
-        <button id="btn-register-header" class="button">Register</button>
         <div id="user-menu" class="hidden">
           <span id="user-email"></span>
           <button id="btn-edit-profile" class="button">Edit Profile</button>
@@ -26,6 +25,7 @@
         </div>
       </div>
     </header>
+    <small id="global-msg" class="hint"></small>
 
     <!-- Intro -->
     <section id="intro" class="intro" aria-label="Intro">
@@ -235,6 +235,9 @@
       <input id="auth-email" class="input" type="email" />
       <label class="label" for="auth-password">Password</label>
       <input id="auth-password" class="input" type="password" />
+      <label class="label auth-extra" for="auth-confirm">Confirm Password</label>
+      <input id="auth-confirm" class="input auth-extra" type="password" />
+      <small id="password-strength" class="hint auth-extra"></small>
       <div class="modal-actions">
         <button id="btn-do-login" class="button primary">Sign in</button>
         <button id="btn-do-register" class="button primary hidden">Create account</button>
@@ -243,6 +246,16 @@
       <div id="auth-msg" class="hint" aria-live="polite"></div>
       <div class="modal-footer">
         <button id="auth-close" class="button">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="info-modal" class="modal hidden">
+    <div class="modal-card">
+      <h3 class="modal-title">Information</h3>
+      <div id="info-text" class="hint"></div>
+      <div class="modal-footer">
+        <button id="info-close" class="button">Close</button>
       </div>
     </div>
   </div>

@@ -56,6 +56,13 @@ const authPassword = el('auth-password');
 const btnDoLogin = el('btn-do-login');
 const btnDoRegister = el('btn-do-register');
 const authClose = el('auth-close');
+const authConfirm = el('auth-confirm');
+const authFullName = el('auth-full-name');
+const authLangSel = el('auth-lang');
+const authDobInput = el('auth-dob');
+const infoModal = el('info-modal');
+const infoText = el('info-text');
+const infoClose = el('info-close');
 const profileModal = el('profile-modal');
 const profileFullName = el('profile-full-name');
 const profileLang = el('profile-lang');
@@ -216,8 +223,10 @@ function setBusy(b){
 function openModal(m){ m && m.classList.remove('hidden'); }
 function closeModal(m){ m && m.classList.add('hidden'); }
 function initSupabase(){
-  const url = window.SUPABASE_URL || '';
-  const key = window.SUPABASE_ANON_KEY || '';
+  const rawUrl = window.SUPABASE_URL || '';
+  const rawKey = window.SUPABASE_ANON_KEY || '';
+  const url = sanitizeUrl(rawUrl).trim();
+  const key = String(rawKey || '').replace(/^`+|`+$/g,'').trim();
   if (window.supabase && url && key){
     supabaseClient = window.supabase.createClient(url, key);
   }
@@ -250,6 +259,10 @@ function setAuthMode(mode){
   linkToRegister?.classList.toggle('hidden', mode !== 'login');
   linkToLogin?.classList.toggle('hidden', mode !== 'register');
   if (authMsg) { authMsg.textContent = ''; authMsg.style.color = '#ffb3b3'; }
+  // Toggle extra fields for register
+  document.querySelectorAll('.auth-extra').forEach(el => {
+    if (mode === 'register') el.classList.remove('hidden'); else el.classList.add('hidden');
+  });
 }
 function setButtonLoading(btn, loadingText){
   if (!btn) return;
@@ -277,10 +290,10 @@ async function updateAuthUI(session){
     btnRegisterHeader?.classList.add('hidden');
     const emailSpan = document.getElementById('user-email');
     if (emailSpan) emailSpan.textContent = currentUser.email || '';
+    await ensureProfileExists();
     await loadProfilePrefill();
     await preloadLastSavedData();
     await showAllChatsForUser();
-    triggerRecalculateIfReady();
     if (lastState && !currentSoulmapId){
       ctaSaveCurrent?.classList.remove('hidden');
     }
@@ -392,6 +405,8 @@ async function initAuth(){
 }
 function openAuth(){ openModal(authModal); }
 function closeAuth(){ closeModal(authModal); }
+function openInfo(text){ if (infoText) infoText.textContent = text || ''; openModal(infoModal); }
+function closeInfo(){ closeModal(infoModal); show(form); show(introSec); }
 async function openProfile(){
   try{
     if (!(await ensureSupabase())) { openModal(profileModal); return; }
@@ -414,6 +429,7 @@ function closeProfile(){ closeModal(profileModal); }
 btnLogin?.addEventListener('click', ()=>{ setAuthMode('login'); openAuth(); });
 btnRegisterHeader?.addEventListener('click', ()=>{ setAuthMode('register'); openAuth(); });
 authClose?.addEventListener('click', closeAuth);
+infoClose?.addEventListener('click', closeInfo);
 btnEditProfile?.addEventListener('click', openProfile);
 profileClose?.addEventListener('click', closeProfile);
 btnRegisterSave?.addEventListener('click', ()=>{ setAuthMode('register'); openAuth(); });
@@ -435,6 +451,8 @@ async function handleSignIn(){
     if (error) throw error;
     setAuthMessage('Signed in successfully', 'success');
     closeAuth();
+    const gm = document.getElementById('global-msg'); if (gm) gm.textContent = 'Signed in successfully';
+    show(form); show(introSec);
     showNotice('✅ Signed in');
   }catch(err){
     const msg = /invalid|credentials/i.test(err?.message || '')
@@ -450,20 +468,16 @@ async function handleRegister(){
   if (!(await ensureSupabase())){ setAuthMessage('Cannot initialize Supabase. Check URL/Key.', 'error'); return; }
   const email = String(authEmail?.value || '').trim();
   const password = String(authPassword?.value || '').trim();
+  const confirm = String(authConfirm?.value || '').trim();
   if (!email || !password){ setAuthMessage('Please enter email and password', 'error'); return; }
+  if (password !== confirm){ setAuthMessage('Passwords do not match', 'error'); return; }
   try{
     setButtonLoading(btnDoRegister, 'Creating...');
     const { data, error } = await supabaseClient.auth.signUp({ email, password });
     if (error) throw error;
     const user = data?.user;
     if (user){
-      const payload = {
-        id: user.id,
-        full_name: inputName?.value?.trim() || null,
-        lang: (inputLang?.value || currentLang || 'vi'),
-        date_of_birth: (selYear?.value && selMonth?.value && selDay?.value) ? `${selYear.value}-${selMonth.value}-${selDay.value}` : null
-      };
-      await supabaseClient.from('profiles').insert(payload);
+      // no profile fields at register; will load or create default after login
       if (window.soulmapData && lastState){
         const insertPayload = {
           user_id: user.id,
@@ -482,9 +496,10 @@ async function handleRegister(){
         });
         if (rows.length) await supabaseClient.from('chat_messages').insert(rows);
       }
-      setAuthMessage('✅ Account created. Your SoulMap is saved.', 'success');
+      setAuthMessage('✅ Account created. Please check your email to confirm.', 'success');
       closeAuth();
-      showNotice('✅ Account created. Your SoulMap is saved.');
+      openInfo('Please check your email to confirm your account.');
+      const gm = document.getElementById('global-msg'); if (gm) gm.textContent = 'Account created. Check your email to confirm.';
     }
   }catch(err){
     const msg = /exist|already|duplicate|registered/i.test(err?.message || '')
@@ -539,6 +554,15 @@ async function loadProfilePrefill(){
     selYear.value = y; selMonth.value = m; selDay.value = d;
   }
 }
+async function saveProfileFromForm(){
+  if (!supabaseClient || !currentUser) return;
+  const payload = {
+    full_name: String(inputName?.value || '').trim(),
+    lang: String(inputLang?.value || '').trim() || 'en',
+    date_of_birth: (selYear?.value && selMonth?.value && selDay?.value) ? `${selYear.value}-${selMonth.value}-${selDay.value}` : null
+  };
+  await supabaseClient.from('profiles').update(payload).eq('id', currentUser.id);
+}
 function showNotice(text){
   const n = document.createElement('div');
   n.textContent = text;
@@ -564,12 +588,7 @@ async function afterCalculate(data, full_name, lang, dob){
     const { data: ins } = await supabaseClient.from('soulmaps').insert(insertPayload).select('id').single();
     currentSoulmapId = ins?.id || null;
     ctaRegister?.classList.add('hidden');
-    try{
-      const savedChats = window.__lastSavedChats || [];
-      if (chatMessages && savedChats.length){
-        savedChats.forEach(m => appendMessage(m.role === 'assistant' ? 'assistant' : 'user', m.content || ''));
-      }
-    }catch{}
+    try{ await showAllChatsForUser(); }catch{}
   } else {
     ctaRegister?.classList.remove('hidden');
   }
@@ -912,6 +931,7 @@ form.addEventListener('submit', async (e)=>{
     setBusy(true);
     const rawLang = (inputLang?.value || currentLang || 'en').trim();
     const lang = normalizeLang(rawLang);
+    try{ await saveProfileFromForm(); }catch{}
     let raw = loadWFCache(full_name, dob, lang);
     if (!isValidWFResponse(raw)) {
       raw = await callDify(full_name, dob, lang);
@@ -1030,6 +1050,25 @@ try{
     });
 }catch(e){
   showVisitCount(getVisitCount());
+}
+async function ensureProfileExists(){
+  try{
+    if (!supabaseClient || !currentUser) return;
+    const { data } = await supabaseClient
+      .from('profiles')
+      .select('id')
+      .eq('id', currentUser.id)
+      .maybeSingle();
+    if (!data){
+      let payload = {};
+      try{ payload = JSON.parse(localStorage.getItem('reg_profile')||'{}'); }catch{}
+      const meta = currentUser.user_metadata || {};
+      const full_name = payload.full_name || meta.full_name || '';
+      const lang = payload.lang || meta.lang || (inputLang?.value || currentLang || 'en');
+      const date_of_birth = payload.date_of_birth || meta.date_of_birth || null;
+      await supabaseClient.from('profiles').insert({ id: currentUser.id, full_name, lang, date_of_birth });
+    }
+  }catch{}
 }
 document.addEventListener('DOMContentLoaded', async ()=>{ await waitForSupabaseReady(); initAuth(); });
 btnSaveCurrent?.addEventListener('click', async ()=>{
@@ -1255,8 +1294,7 @@ async function renderPreviewCard(output){
 
 async function renderDownloadCard(output){
   const base = await renderPreviewCard(output);
-  const out = await addQrToCanvas(base.canvas);
-  return out;
+  return base.canvas;
 }
 
 function wrapText(ctx, text, x, y, maxWidth, lineHeight){
@@ -2476,3 +2514,30 @@ async function clearAppCache(){
     }
   }catch{}
 }
+function computeStrength(p){
+  const len = (p||'').length;
+  const hasLower = /[a-z]/.test(p);
+  const hasUpper = /[A-Z]/.test(p);
+  const hasDigit = /\d/.test(p);
+  const hasSpecial = /[^A-Za-z0-9]/.test(p);
+  let score = 0;
+  if (len >= 8) score++;
+  if (hasLower && hasUpper) score++;
+  if (hasDigit) score++;
+  if (hasSpecial) score++;
+  if (len >= 12) score++;
+  if (score <= 2) return 'Weak';
+  if (score === 3) return 'Medium';
+  return 'Strong';
+}
+authPassword?.addEventListener('input', ()=>{
+  const v = String(authPassword.value||'');
+  const s = computeStrength(v);
+  const el = document.getElementById('password-strength');
+  if (el) el.textContent = `Password strength: ${s}`;
+});
+authConfirm?.addEventListener('input', ()=>{
+  const a = String(authPassword?.value||'');
+  const b = String(authConfirm?.value||'');
+  if (authMsg) authMsg.textContent = (a && b && a!==b) ? 'Passwords do not match' : '';
+});
