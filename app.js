@@ -436,9 +436,15 @@ btnRegisterSave?.addEventListener('click', ()=>{ setAuthMode('register'); openAu
 linkToRegister?.addEventListener('click', (e)=>{ e.preventDefault(); setAuthMode('register'); });
 linkToLogin?.addEventListener('click', (e)=>{ e.preventDefault(); setAuthMode('login'); });
 btnLogout?.addEventListener('click', async ()=>{
-  if (!supabaseClient) return;
-  await supabaseClient.auth.signOut();
+  try{ await ensureSupabase(); await supabaseClient.auth.signOut(); }catch{}
   currentSoulmapId = null;
+  try{ sessionStorage.removeItem('soul_convo'); }catch{}
+  try{ localStorage.removeItem('soul_coach_convo'); }catch{}
+  try{ localStorage.removeItem('soulmap_uid'); }catch{}
+  await updateAuthUI(null);
+  hide(resultSec); show(form); show(introSec);
+  if (chatBox) { chatBox.classList.add('hidden'); chatBox.style.display = ''; }
+  showNotice('✅ Logged out');
 });
 async function handleSignIn(){
   if (!(await ensureSupabase())){ setAuthMessage('Cannot initialize Supabase. Check URL/Key.', 'error'); return; }
