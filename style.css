@@ -100,12 +100,7 @@ body {
 .modal-footer { display:flex; justify-content: flex-end; margin-top: 10px; }
 
 /* Visit count hint spacing and style */
-#visit-count.hint {
-  margin-top: 6px;
-  display: block;
-  color: var(--text);
-  text-align: center;
-}
+ 
 
 /* Increase spacing above Birthday label to avoid crowding with language selector */
 #label-birthday.label {

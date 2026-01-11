@@ -455,7 +455,6 @@ async function handleSignIn(){
     if (error) throw error;
     setAuthMessage('Signed in successfully', 'success');
     closeAuth();
-    const gm = document.getElementById('global-msg'); if (gm) gm.textContent = 'Signed in successfully';
     show(form); show(introSec);
     showNotice('✅ Signed in');
   }catch(err){
@@ -503,7 +502,6 @@ async function handleRegister(){
       setAuthMessage('✅ Account created. Please check your email to confirm.', 'success');
       closeAuth();
       openInfo('Please check your email to confirm your account.');
-      const gm = document.getElementById('global-msg'); if (gm) gm.textContent = 'Account created. Check your email to confirm.';
     }
   }catch(err){
     const msg = /exist|already|duplicate|registered/i.test(err?.message || '')
@@ -892,16 +890,7 @@ function render({ core, interpretation, imageUrl, share, personalYear, personalY
 }
 
 /* ========== Submit ========== */
-function getVisitCount(){
-  try { return parseInt(localStorage.getItem('visit_count') || '0', 10) || 0; } catch(e){ return 0; }
-}
-function setVisitCount(n){
-  try { localStorage.setItem('visit_count', String(n)); } catch(e){}
-}
-function showVisitCount(n){
-  const elVC = document.getElementById('visit-count');
-  if (elVC) elVC.textContent = `Visits: ${n}`;
-}
+ 
 form.addEventListener('submit', async (e)=>{
   e.preventDefault();
   // Nếu đang submit thì bỏ qua để tránh trùng
@@ -946,11 +935,7 @@ form.addEventListener('submit', async (e)=>{
     lastState = { ...data, fullName: full_name, lang, dob };
     render({ ...data, fullName: full_name, lang });
     await afterCalculate(data, full_name, lang, dob);
-    try {
-      const r = await fetch('/api/visit', { method: 'POST' });
-      const j = await r.json();
-      showVisitCount(parseInt(j.visits || 0, 10));
-    } catch (e) { /* ignore */ }
+     
   }catch(err){
     console.error(err);
     const msg = /504|timeout|Gateway/i.test(err?.message || '')
@@ -1042,19 +1027,7 @@ async function fetchImageBlob(url){
 }
 
 // Share UI removed: copy link disabled
-// Initialize visit count on load
-try{
-  fetch('/api/visit')
-    .then(r=>r.json())
-    .then(j=>{
-      showVisitCount(parseInt(j.visits || 0, 10));
-    })
-    .catch(()=>{
-      showVisitCount(getVisitCount());
-    });
-}catch(e){
-  showVisitCount(getVisitCount());
-}
+ 
 async function ensureProfileExists(){
   try{
     if (!supabaseClient || !currentUser) return;
