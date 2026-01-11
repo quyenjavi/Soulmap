@@ -294,13 +294,11 @@ async function updateAuthUI(session){
     await loadProfilePrefill();
     await preloadLastSavedData();
     await showAllChatsForUser();
-    if (lastState && !currentSoulmapId){
-      ctaSaveCurrent?.classList.remove('hidden');
-    }
+    
   } else {
     btnLogin?.classList.remove('hidden');
     userMenu?.classList.add('hidden');
-    ctaSaveCurrent?.classList.add('hidden');
+    
     btnRegisterHeader?.classList.remove('hidden');
     ctaRegister?.classList.add('hidden');
     currentSoulmapId = null;
@@ -1077,28 +1075,6 @@ async function ensureProfileExists(){
   }catch{}
 }
 document.addEventListener('DOMContentLoaded', async ()=>{ await waitForSupabaseReady(); initAuth(); });
-btnSaveCurrent?.addEventListener('click', async ()=>{
-  if (!supabaseClient || !currentUser || !lastState) return;
-  const insertPayload = {
-    user_id: currentUser.id,
-    life_path: Number(lastState?.core?.life_path || 0),
-    output: window.soulmapData || {},
-    card_image_url: window.soulmapImageUrl || ''
-  };
-  const { data: ins } = await supabaseClient.from('soulmaps').insert(insertPayload).select('id').single();
-  currentSoulmapId = ins?.id || null;
-  const items = chatMessages?.querySelectorAll('.chat-msg');
-  const rows = [];
-  items?.forEach(item => {
-    const role = item.classList.contains('assistant') ? 'assistant' : 'user';
-    const text = item.querySelector('.bubble')?.textContent || '';
-    rows.push({ user_id: currentUser.id, soulmap_id: currentSoulmapId, role, content: text });
-  });
-  if (rows.length) await supabaseClient.from('chat_messages').insert(rows);
-  ctaSaveCurrent?.classList.add('hidden');
-  showNotice('✅ Current SoulMap has been saved.');
-});
-btnDismissSave?.addEventListener('click', ()=>{ ctaSaveCurrent?.classList.add('hidden'); });
 
 // Global state for export
 window.soulmapData = null;
@@ -1602,7 +1578,6 @@ const chatInput = document.getElementById('chat-input');
 const chatSend = document.getElementById('chat-send');
 const chatMessages = document.getElementById('chat-messages');
 const askCoachBtn = document.getElementById('ask-coach');
-const chatClear = document.getElementById('chat-clear');
 
 // Reset toàn bộ chat khi bắt đầu Calculate
 function resetChatForCalculation(){
@@ -1998,19 +1973,6 @@ if (askCoachBtn) {
   });
 }
 
-if (chatClear) {
-  chatClear.addEventListener('click', async (e) => {
-    e.preventDefault();
-    try{
-      if (!supabaseClient || !currentUser) return;
-      await supabaseClient.from('chat_messages').delete().eq('user_id', currentUser.id);
-      if (chatMessages) chatMessages.innerHTML = '';
-      try { sessionStorage.removeItem('soul_convo'); } catch {}
-      try { localStorage.removeItem('soul_coach_convo'); } catch {}
-      showNotice('✅ Chat history cleared.');
-    }catch{}
-  });
-}
 
 // Hook chat chips rendering into main render flow
 function renderChatHook(state) {
