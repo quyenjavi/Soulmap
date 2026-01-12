@@ -11,6 +11,35 @@ load_dotenv()
 load_dotenv('.env.local')
 app = Flask(__name__, static_folder='.', static_url_path='')
 
+def urlopen_with_retry(req, timeout=90, retries=2, backoff=1.0):
+    last_exc = None
+    for attempt in range(retries + 1):
+        try:
+            return urllib.request.urlopen(req, timeout=timeout)
+        except urllib.error.HTTPError as e:
+            if e.code in (502, 503, 504) and attempt < retries:
+                time.sleep(backoff * (attempt + 1))
+                continue
+            raise
+        except (urllib.error.URLError, socket.timeout) as e:
+            last_exc = e
+            msg = str(getattr(e, 'reason', e)).lower()
+            if ('timed out' in msg or 'timeout' in msg) and attempt < retries:
+                time.sleep(backoff * (attempt + 1))
+                continue
+            if attempt < retries:
+                time.sleep(backoff * (attempt + 1))
+                continue
+            raise
+        except Exception as e:
+            last_exc = e
+            if attempt < retries:
+                time.sleep(backoff * (attempt + 1))
+                continue
+            raise
+    if last_exc:
+        raise last_exc
+
 
 @app.after_request
 def add_cors_headers(resp):
@@ -74,36 +103,6 @@ def api_visit():
             _visits_count += 1
         current = _visits_count
     return jsonify({'visits': current}), 200
-
-
-def urlopen_with_retry(req, timeout=90, retries=2, backoff=1.0):
-    last_exc = None
-    for attempt in range(retries + 1):
-        try:
-            return urllib.request.urlopen(req, timeout=timeout)
-        except urllib.error.HTTPError as e:
-            if e.code in (502, 503, 504) and attempt < retries:
-                time.sleep(backoff * (attempt + 1))
-                continue
-            raise
-        except (urllib.error.URLError, socket.timeout) as e:
-            last_exc = e
-            msg = str(getattr(e, 'reason', e)).lower()
-            if ('timed out' in msg or 'timeout' in msg) and attempt < retries:
-                time.sleep(backoff * (attempt + 1))
-                continue
-            if attempt < retries:
-                time.sleep(backoff * (attempt + 1))
-                continue
-            raise
-        except Exception as e:
-            last_exc = e
-            if attempt < retries:
-                time.sleep(backoff * (attempt + 1))
-                continue
-            raise
-    if last_exc:
-        raise last_exc
 
 
 @app.route('/api/workflow', methods=['POST', 'OPTIONS'])
