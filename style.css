@@ -85,6 +85,7 @@ body {
 .info { background: linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,.0)); border: 1px solid rgba(232,215,164,.22); border-radius: 16px; padding: 20px; box-shadow: var(--shadow); }
 .section-title { font-family: 'Playfair Display', serif; font-weight: 600; font-size: clamp(18px, 2.2vw, 22px); margin: 24px 0 8px; letter-spacing: .2px; }
 .section-text { font-family: Inter, system-ui, sans-serif; font-size: 16px; line-height: 1.7; color: var(--text); opacity: .92; }
+#text-personal-year-advice { white-space: pre-line; }
 .section-list li { margin: 8px 0; color: var(--text); opacity: .9; }
 .actions { display:flex; flex-direction: column; align-items: center; gap:8px; justify-content:center; margin-top: 10px; }
 .try-again { display:block; text-align:center; margin-top: 8px; color: var(--accent); text-decoration: none; }

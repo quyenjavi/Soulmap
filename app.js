@@ -1494,7 +1494,7 @@ async function composeSoulMapImage({
   if (advice && advice.trim()) {
     ctx.font = "700 36px 'Playfair Display', Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif";
     ctx.fillStyle = 'rgba(255,255,255,0.96)';
-    ctx.fillText(lang === 'vi' ? 'Personal Year' : 'Personal Year', W / 2, y);
+    ctx.fillText('Your 2026 Compass ⭐️', W / 2, y);
     y += 36 + 14;
     ctx.font = '400 28px Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif';
     ctx.fillStyle = 'rgba(255,255,255,0.92)';
@@ -2396,7 +2396,7 @@ async function composeSoulMapImage({
   if (advice && advice.trim()) {
     ctx.font = "700 36px 'Playfair Display', Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif";
     ctx.fillStyle = 'rgba(255,255,255,0.96)';
-    ctx.fillText(lang === 'vi' ? 'Personal Year' : 'Personal Year', W / 2, y);
+    ctx.fillText('Your 2026 Compass ⭐️', W / 2, y);
     y += 36 + 14;
     ctx.font = '400 28px Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif';
     ctx.fillStyle = 'rgba(255,255,255,0.92)';
