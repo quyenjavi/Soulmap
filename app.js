@@ -100,22 +100,31 @@ let currentLang = 'en';
 let lastState   = { core:null, interpretation:null, imageUrl:'', share:{}, personalYear: undefined, personalYearAdvice: '', fullName: '' };
 
 /* ========== Loading Quotes ========== */
-const LOADING_QUOTES = [
+const LOADING_QUOTES_EN = [
   "Numbers are the language of the soul — a quiet geometry that reveals why we are here.",
   "Pythagoras believed that each number carries a vibration — a silent rhythm that connects the stars, the mind, and the human heart.",
   "While your chart is being calculated, remember: every number has a story, and every story begins with self-discovery.",
   "The harmony of the universe is found in the rhythm of numbers. Let’s listen to what yours will say.",
   "Even Pythagoras said: learn the numbers, and you will learn yourself."
 ];
+const LOADING_QUOTES_VI = [
+  "Những con số là ngôn ngữ của linh hồn — hình học tĩnh lặng hé lộ lý do ta hiện hữu.",
+  "Pythagoras tin rằng mỗi con số mang một rung động — nhịp điệu thầm lặng kết nối vũ trụ, trí tâm và trái tim con người.",
+  "Trong lúc bản đồ đang được tính, hãy nhớ: mỗi con số có một câu chuyện, và hành trình bắt đầu từ khám phá bản thân.",
+  "Sự hài hòa của vũ trụ được tìm thấy trong nhịp điệu của những con số. Hãy lắng nghe điều mà con số của bạn muốn nói.",
+  "Hãy học về những con số — bạn sẽ học về chính mình."
+];
 const loadingQuoteEl = document.getElementById('loading-quote');
 let _loadingQuoteTimer = null;
 function startLoadingQuotes(){
   if (!loadingQuoteEl) return;
+  const langNow = normalizeLang(inputLang?.value || currentLang || 'en');
+  const QUOTES = langNow === 'vi' ? LOADING_QUOTES_VI : LOADING_QUOTES_EN;
   let i = 0;
-  loadingQuoteEl.textContent = LOADING_QUOTES[i % LOADING_QUOTES.length];
+  loadingQuoteEl.textContent = QUOTES[i % QUOTES.length];
   _loadingQuoteTimer = setInterval(()=>{
     i++;
-    loadingQuoteEl.textContent = LOADING_QUOTES[i % LOADING_QUOTES.length];
+    loadingQuoteEl.textContent = QUOTES[i % QUOTES.length];
   }, 9000);
 }
 function stopLoadingQuotes(){
