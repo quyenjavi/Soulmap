@@ -8,6 +8,7 @@ import time
 import socket
 import threading
 
+# Load env
 load_dotenv()
 load_dotenv('.env.local')
 
@@ -20,7 +21,7 @@ def urlopen_with_retry(req, timeout=90, retries=2, backoff=1.0):
         try:
             return urllib.request.urlopen(req, timeout=timeout)
         except urllib.error.HTTPError as e:
-            # Retry only for upstream transient errors
+            # Retry only for transient upstream errors
             if e.code in (502, 503, 504) and attempt < retries:
                 time.sleep(backoff * (attempt + 1))
                 continue
@@ -77,7 +78,7 @@ def supabase_js_proxy():
     ]
     for url in cdns:
         try:
-            req = urllib.request.Request(url, method='GET')
+            req = urllib.request.Request(url, method='GET', headers={"User-Agent": "curl/8.0"})
             with urlopen_with_retry(req, timeout=30, retries=1) as r:
                 body = r.read()
                 content_type = r.headers.get('Content-Type', 'application/javascript')
@@ -87,7 +88,6 @@ def supabase_js_proxy():
     return Response('// failed to load supabase.js', status=502, content_type='application/javascript')
 
 
-# Serve favicon.ico using existing JPEG in image directory
 @app.route('/favicon.ico')
 def favicon():
     try:
@@ -96,7 +96,7 @@ def favicon():
         return send_from_directory('.', 'image/favicon.jpg')
 
 
-# Global visits counter initialized via environment variable VISITS_INIT (default 0)
+# Visits counter
 _visits_lock = threading.Lock()
 _visits_count = int(os.environ.get('VISITS_INIT', '0') or '0')
 
@@ -115,14 +115,21 @@ def api_visit():
     return jsonify({'visits': current}), 200
 
 
-def _normalize_bearer(api_key: str) -> str:
+def normalize_bearer(api_key: str) -> str:
+    """
+    Make Authorization header safe:
+    - strip
+    - remove hidden newlines/tabs/multiple spaces
+    - ensure exactly one leading 'Bearer '
+    """
     api_key = (api_key or '').strip()
+    api_key = " ".join(api_key.split())  # removes \n \r \t and collapses spaces
     if api_key and not api_key.lower().startswith('bearer '):
         api_key = 'Bearer ' + api_key
     return api_key
 
 
-def _build_endpoint(api_base: str, suffix: str) -> str:
+def build_endpoint(api_base: str, suffix: str) -> str:
     api_base = (api_base or '').strip()
     base_no_slash = api_base.rstrip('/')
     if base_no_slash.endswith(suffix):
@@ -140,15 +147,17 @@ def api_workflow():
     date_of_birth = (payload.get('date_of_birth') or '').strip()
     lang = (payload.get('lang') or 'en').strip() or 'en'
 
-    # Accept both base URL (https://api.dify.ai/v1) or full endpoint (https://api.dify.ai/v1/workflows/run)
+    # Dify endpoint
     api_base = os.environ.get('DIFY_WORKFLOW_API_URL') or os.environ.get('DIFY_API_URL') or 'https://api.dify.ai/v1'
-    api_url = _build_endpoint(api_base, '/workflows/run')
+    api_url = build_endpoint(api_base, '/workflows/run')
 
+    # Key
     api_key = os.environ.get('DIFY_WORKFLOW_API_KEY') or os.environ.get('DIFY_API_KEY')
     if not api_key:
         return jsonify({'error': 'DIFY_WORKFLOW_API_KEY not set'}), 500
-    api_key = _normalize_bearer(api_key)
+    api_key = normalize_bearer(api_key)
 
+    # Request body for workflow
     body = {
         'inputs': {
             'full_name': full_name,
@@ -160,14 +169,21 @@ def api_workflow():
     }
     data = json.dumps(body).encode('utf-8')
 
+    # Debug (safe)
+    app.logger.warning(f"[WF] Dify URL = {api_url}")
+    app.logger.warning(f"[WF] Key prefix = {api_key[:18]}***")
+    app.logger.warning(f"[WF] Inputs = full_name={full_name[:20]}..., lang={lang}")
+
     start = time.time()
     try:
-        req = urllib.request.Request(api_url, data=data, method='POST')
-        req.add_header('Content-Type', 'application/json')
-        req.add_header('Authorization', api_key)
-        app.logger.warning(f"[WF] Dify URL = {api_url}")
-        app.logger.warning(f"[WF] Key prefix = {api_key[:18]}***")
-        app.logger.warning(f"[WF] Inputs = full_name={full_name[:20]}..., lang={lang}")
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": api_key,
+            "User-Agent": "curl/8.0",
+            "Accept": "application/json",
+        }
+        req = urllib.request.Request(api_url, data=data, headers=headers, method='POST')
+
         with urlopen_with_retry(req, timeout=120, retries=3) as r:
             resp_body = r.read()
             content_type = r.headers.get('Content-Type', 'application/json')
@@ -193,6 +209,7 @@ def api_workflow():
                 'chat_prompts': pick('chat_prompts') or None,
             }
 
+            # image_url extraction
             image_url = inner.get('image_url') or outputs.get('image_url') or result.get('image_url') or ''
             img_raw = outputs.get('image')
             if not image_url and img_raw:
@@ -223,8 +240,9 @@ def api_workflow():
                 'chat_prompts': normalized['chat_prompts'],
             }
 
-            app.logger.info(f"/api/workflow OK in {dur:.1f}s (normalized)")
+            app.logger.info(f"/api/workflow OK in {dur:.1f}s")
             return jsonify(normalized), 200
+
         except Exception:
             app.logger.info(f"/api/workflow RAW OK in {dur:.1f}s, type={content_type}")
             return Response(resp_body, status=200, content_type=content_type)
@@ -233,7 +251,7 @@ def api_workflow():
         dur = time.time() - start
         try:
             resp_body = e.read()
-            content_type = e.headers.get('Content-Type', 'application/json')
+            content_type = e.headers.get('Content-Type', 'text/plain; charset=UTF-8')
             app.logger.warning(f"/api/workflow HTTP {e.code} in {dur:.1f}s: {resp_body[:200]}")
             return Response(resp_body, status=e.code, content_type=content_type)
         except Exception:
@@ -263,12 +281,12 @@ def api_chat():
         return jsonify({'error': 'missing query'}), 400
 
     api_base = os.environ.get('DIFY_CHAT_API_URL') or os.environ.get('DIFY_API_URL') or 'https://api.dify.ai/v1'
-    api_url = _build_endpoint(api_base, '/chat-messages')
+    api_url = build_endpoint(api_base, '/chat-messages')
 
     api_key = os.environ.get('DIFY_CHAT_API_KEY') or os.environ.get('DIFY_API_KEY')
     if not api_key:
         return jsonify({'error': 'DIFY_CHAT_API_KEY not set'}), 500
-    api_key = _normalize_bearer(api_key)
+    api_key = normalize_bearer(api_key)
 
     body = {
         'user': user,
@@ -279,9 +297,13 @@ def api_chat():
     data = json.dumps(body).encode('utf-8')
 
     try:
-        req = urllib.request.Request(api_url, data=data, method='POST')
-        req.add_header('Content-Type', 'application/json')
-        req.add_header('Authorization', api_key)
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": api_key,
+            "User-Agent": "curl/8.0",
+            "Accept": "application/json",
+        }
+        req = urllib.request.Request(api_url, data=data, headers=headers, method='POST')
 
         with urlopen_with_retry(req, timeout=60, retries=1) as r:
             resp_body = r.read()
@@ -297,14 +319,9 @@ def api_chat():
         try:
             resp_body = e.read()
             content_type = e.headers.get('Content-Type', 'application/json')
-            try:
-                body_text = resp_body.decode('utf-8', errors='ignore')
-            except Exception:
-                body_text = ''
-
+            body_text = resp_body.decode('utf-8', errors='ignore')
             if e.code == 400 and ('not_chat_app' in body_text or 'Please check if your app mode' in body_text):
                 return jsonify({'answer': 'Chat app chưa được cấu hình cho khóa hiện tại.'}), 200
-
             return Response(resp_body, status=e.code, content_type=content_type)
         except Exception:
             return jsonify({'error': f'HTTP {e.code}'}), e.code
@@ -319,7 +336,7 @@ def proxy_image():
     if not url:
         return jsonify({'error': 'missing url'}), 400
     try:
-        req = urllib.request.Request(url, method='GET')
+        req = urllib.request.Request(url, method='GET', headers={"User-Agent": "curl/8.0"})
         with urlopen_with_retry(req, timeout=30, retries=1) as r:
             content_type = r.headers.get('Content-Type', 'image/png')
             body = r.read()
