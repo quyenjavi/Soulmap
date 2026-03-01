@@ -121,10 +121,16 @@ def api_workflow():
         api_url = api_base
     else:
         api_url = base_no_slash + '/workflows/run'
-    api_key = os.environ.get('DIFY_WORKFLOW_API_KEY') or os.environ.get('DIFY_API_KEY')
+    api_key = (
+    os.environ.get('DIFY_WORKFLOW_API_KEY')
+    or os.environ.get('DIFY_API_KEY')
+    )
     if not api_key:
         return jsonify({'error': 'DIFY_WORKFLOW_API_KEY not set'}), 500
-
+    api_key = api_key.strip()
+    # Normalize: allow env to be either "app-xxx" or "Bearer app-xxx"
+    if not api_key.lower().startswith("bearer "):
+        api_key = "Bearer " + api_key
     body = {
         'inputs': {
             'full_name': full_name,
@@ -234,10 +240,15 @@ def api_chat():
         api_url = base_no_slash
     else:
         api_url = base_no_slash + '/chat-messages'
-    api_key = os.environ.get('DIFY_CHAT_API_KEY') or os.environ.get('DIFY_API_KEY')
+    api_key = (
+       os.environ.get('DIFY_CHAT_API_KEY')
+       or os.environ.get('DIFY_API_KEY')
+    )
     if not api_key:
-        return jsonify({'error': 'DIFY_CHAT_API_KEY not set'}), 500
-
+       return jsonify({'error': 'DIFY_CHAT_API_KEY not set'}), 500
+    api_key = api_key.strip()
+if not api_key.lower().startswith("bearer "):
+    api_key = "Bearer " + api_key
     body = {
         'user': user,
         'query': query,
