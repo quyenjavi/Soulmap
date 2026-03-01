@@ -247,9 +247,9 @@ def api_chat():
     if not api_key:
        return jsonify({'error': 'DIFY_CHAT_API_KEY not set'}), 500
     api_key = api_key.strip()
-if not api_key.lower().startswith("bearer "):
-    api_key = "Bearer " + api_key
-    body = {
+    if not api_key.lower().startswith("bearer "):
+        api_key = "Bearer " + api_key
+        body = {
         'user': user,
         'query': query,
         'inputs': inputs,
