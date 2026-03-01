@@ -301,13 +301,17 @@ async function updateAuthUI(session){
     if (emailSpan) emailSpan.textContent = currentUser.email || '';
     await ensureProfileExists();
     await loadProfilePrefill();
-    await preloadLastSavedData();
-    await showAllChatsForUser();
-    
+    // Show last saved soulmap if it exists
+    try {
+      await showLastSavedConvo();
+    } catch (e) {
+      console.error('Error loading last saved soulmap:', e);
+    }
+
   } else {
     btnLogin?.classList.remove('hidden');
     userMenu?.classList.add('hidden');
-    
+
     btnRegisterHeader?.classList.remove('hidden');
     ctaRegister?.classList.add('hidden');
     currentSoulmapId = null;
@@ -375,31 +379,56 @@ async function showAllChatsForUser(){
 async function showLastSavedConvo(){
   try{
     if (!supabaseClient || !currentUser) return;
-    const { data: sm } = await supabaseClient
+    const { data: sm, error } = await supabaseClient
       .from('soulmaps')
       .select('*')
       .eq('user_id', currentUser.id)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
-    if (!sm) return;
+    if (error) {
+      console.error('Error loading last soulmap:', error);
+      // If error loading, show form instead
+      hide(resultSec);
+      show(form);
+      show(introSec);
+      return;
+    }
+    if (!sm) {
+      // No saved soulmap, show the form/intro
+      hide(resultSec);
+      show(form);
+      show(introSec);
+      return;
+    }
     currentSoulmapId = sm.id || null;
     const out = sm.output || {};
     const name = out?.core?.full_name || inputName.value || '';
     const lang = out?.meta?.lang || inputLang.value || 'en';
     render({ ...normalize(out), fullName: name, lang });
-    const { data: chats } = await supabaseClient
+    const { data: chats, error: chatError } = await supabaseClient
       .from('chat_messages')
       .select('role, content')
       .eq('soulmap_id', sm.id)
       .order('created_at', { ascending: true });
+    if (chatError) {
+      console.error('Error loading chat messages:', chatError);
+    }
     if (chatMessages) {
       chatMessages.innerHTML = '';
       (chats||[]).forEach(m => appendMessage(m.role === 'assistant' ? 'assistant' : 'user', m.content || ''));
     }
+    hide(form);
+    hide(introSec);
     show(resultSec);
     if (chatBox) { chatBox.classList.remove('hidden'); chatBox.style.display = 'block'; }
-  }catch{}
+  }catch(e){
+    console.error('showLastSavedConvo error:', e);
+    // On any error, fall back to showing the form
+    hide(resultSec);
+    show(form);
+    show(introSec);
+  }
 }
 async function initAuth(){
   initSupabase();
@@ -545,24 +574,35 @@ btnSaveProfile?.addEventListener('click', async ()=>{
   closeProfile();
 });
 async function loadProfilePrefill(){
-  if (!supabaseClient || !currentUser) return;
-  const { data } = await supabaseClient.from('profiles').select('full_name, lang, date_of_birth').eq('id', currentUser.id).maybeSingle();
-  if (!data){
-    const def = {
-      id: currentUser.id,
-      full_name: inputName?.value?.trim() || 'User',
-      lang: (inputLang?.value || currentLang || 'vi'),
-      date_of_birth: null
-    };
-    await supabaseClient.from('profiles').insert(def);
-    return;
-  }
-  if (data.full_name) inputName.value = data.full_name;
-  if (data.lang) { inputLang.value = data.lang; setLang(data.lang); }
-  if (data.date_of_birth){
-    const dob = String(data.date_of_birth);
-    const [y,m,d] = dob.split('-');
-    selYear.value = y; selMonth.value = m; selDay.value = d;
+  try {
+    if (!supabaseClient || !currentUser) return;
+    const { data, error } = await supabaseClient.from('profiles').select('full_name, lang, date_of_birth').eq('id', currentUser.id).maybeSingle();
+    if (error) {
+      console.error('Error loading profile:', error);
+      throw error;
+    }
+    if (!data){
+      const def = {
+        id: currentUser.id,
+        full_name: inputName?.value?.trim() || 'User',
+        lang: (inputLang?.value || currentLang || 'vi'),
+        date_of_birth: null
+      };
+      const { error: insertError } = await supabaseClient.from('profiles').insert(def);
+      if (insertError) {
+        console.error('Error inserting default profile:', insertError);
+      }
+      return;
+    }
+    if (data.full_name) inputName.value = data.full_name;
+    if (data.lang) { inputLang.value = data.lang; setLang(data.lang); }
+    if (data.date_of_birth){
+      const dob = String(data.date_of_birth);
+      const [y,m,d] = dob.split('-');
+      selYear.value = y; selMonth.value = m; selDay.value = d;
+    }
+  } catch (e) {
+    console.error('loadProfilePrefill error:', e);
   }
 }
 async function saveProfileFromForm(){
@@ -1040,11 +1080,15 @@ async function fetchImageBlob(url){
 async function ensureProfileExists(){
   try{
     if (!supabaseClient || !currentUser) return;
-    const { data } = await supabaseClient
+    const { data, error } = await supabaseClient
       .from('profiles')
       .select('id')
       .eq('id', currentUser.id)
       .maybeSingle();
+    if (error) {
+      console.error('Error checking profile:', error);
+      throw error;
+    }
     if (!data){
       let payload = {};
       try{ payload = JSON.parse(localStorage.getItem('reg_profile')||'{}'); }catch{}
@@ -1052,9 +1096,15 @@ async function ensureProfileExists(){
       const full_name = payload.full_name || meta.full_name || '';
       const lang = payload.lang || meta.lang || (inputLang?.value || currentLang || 'en');
       const date_of_birth = payload.date_of_birth || meta.date_of_birth || null;
-      await supabaseClient.from('profiles').insert({ id: currentUser.id, full_name, lang, date_of_birth });
+      const { error: insertError } = await supabaseClient.from('profiles').insert({ id: currentUser.id, full_name, lang, date_of_birth });
+      if (insertError) {
+        console.error('Error creating profile:', insertError);
+        throw insertError;
+      }
     }
-  }catch{}
+  }catch(e){
+    console.error('ensureProfileExists error:', e);
+  }
 }
 document.addEventListener('DOMContentLoaded', async ()=>{ await waitForSupabaseReady(); initAuth(); });
 
