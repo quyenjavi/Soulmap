@@ -165,7 +165,9 @@ def api_workflow():
         req = urllib.request.Request(api_url, data=data, method='POST')
         req.add_header('Content-Type', 'application/json')
         req.add_header('Authorization', api_key)
-
+        app.logger.warning(f"[WF] Dify URL = {api_url}")
+        app.logger.warning(f"[WF] Key prefix = {api_key[:18]}***")
+        app.logger.warning(f"[WF] Inputs = full_name={full_name[:20]}..., lang={lang}")
         with urlopen_with_retry(req, timeout=120, retries=3) as r:
             resp_body = r.read()
             content_type = r.headers.get('Content-Type', 'application/json')
